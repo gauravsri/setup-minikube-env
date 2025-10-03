@@ -33,7 +33,7 @@ spec:
         image: dremio/dremio-oss:latest
         env:
         - name: DREMIO_JAVA_SERVER_EXTRA_OPTS
-          value: "-Xms512m -Xmx2048m -XX:+UseG1GC"
+          value: "-Xms1g -Xmx4g -XX:+UseG1GC -XX:MaxDirectMemorySize=2g"
         ports:
         - containerPort: 9047
           name: jdbc
@@ -48,24 +48,27 @@ spec:
           mountPath: /opt/dremio/data
         resources:
           requests:
-            memory: "1Gi"
-            cpu: "500m"
-          limits:
             memory: "2Gi"
+            cpu: "1000m"
+          limits:
+            memory: "4Gi"
             cpu: "2000m"
         livenessProbe:
           httpGet:
             path: /
             port: 9999
-          initialDelaySeconds: 120
+          initialDelaySeconds: 300
           periodSeconds: 30
           timeoutSeconds: 10
+          failureThreshold: 5
         readinessProbe:
           httpGet:
             path: /
             port: 9999
-          initialDelaySeconds: 60
+          initialDelaySeconds: 180
           periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 10
       volumes:
       - name: data
         persistentVolumeClaim:
