@@ -19,7 +19,7 @@ deploy() {
 
     apply_manifest "$MANIFEST_FILE" "$NAMESPACE" || return 1
 
-    wait_for_statefulset "$STATEFULSET_NAME" "$NAMESPACE" 120 || {
+    wait_for_statefulset "$STATEFULSET_NAME" "$NAMESPACE" 1 120 || {
         print_error "PostgreSQL deployment failed"
         show_logs "app=postgres" "$NAMESPACE" 50
         return 1
@@ -47,7 +47,7 @@ restart() {
         return 1
     }
 
-    wait_for_statefulset "$STATEFULSET_NAME" "$NAMESPACE" 120
+    wait_for_statefulset "$STATEFULSET_NAME" "$NAMESPACE" 1 120
 
     print_success "PostgreSQL restarted successfully"
 }

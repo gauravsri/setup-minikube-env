@@ -19,20 +19,15 @@ spec:
         app: spark
         component: master
     spec:
+      enableServiceLinks: false
       containers:
       - name: spark-master
-        image: bitnami/spark:3.5.3
+        image: apache/spark:3.5.3
+        command: ["/opt/spark/bin/spark-class"]
+        args: ["org.apache.spark.deploy.master.Master", "--host", "0.0.0.0", "--port", "7077", "--webui-port", "8080"]
         env:
-        - name: SPARK_MODE
-          value: "master"
-        - name: SPARK_RPC_AUTHENTICATION_ENABLED
-          value: "no"
-        - name: SPARK_RPC_ENCRYPTION_ENABLED
-          value: "no"
-        - name: SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED
-          value: "no"
-        - name: SPARK_SSL_ENABLED
-          value: "no"
+        - name: SPARK_NO_DAEMONIZE
+          value: "true"
         ports:
         - containerPort: 8080
           name: web
@@ -101,26 +96,15 @@ spec:
         app: spark
         component: worker
     spec:
+      enableServiceLinks: false
       containers:
       - name: spark-worker
-        image: bitnami/spark:3.5.3
+        image: apache/spark:3.5.3
+        command: ["/opt/spark/bin/spark-class"]
+        args: ["org.apache.spark.deploy.worker.Worker", "--webui-port", "8081", "--memory", "1G", "--cores", "1", "spark://spark-master:7077"]
         env:
-        - name: SPARK_MODE
-          value: "worker"
-        - name: SPARK_MASTER_URL
-          value: "spark://spark-master:7077"
-        - name: SPARK_WORKER_MEMORY
-          value: "1G"
-        - name: SPARK_WORKER_CORES
-          value: "1"
-        - name: SPARK_RPC_AUTHENTICATION_ENABLED
-          value: "no"
-        - name: SPARK_RPC_ENCRYPTION_ENABLED
-          value: "no"
-        - name: SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED
-          value: "no"
-        - name: SPARK_SSL_ENABLED
-          value: "no"
+        - name: SPARK_NO_DAEMONIZE
+          value: "true"
         ports:
         - containerPort: 8081
           name: web

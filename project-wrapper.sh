@@ -86,7 +86,7 @@ export_project_config() {
 parse_enabled_services() {
     if [[ -z "$ENABLED_SERVICES" ]]; then
         # Default to core services if not specified
-        ENABLED_SERVICES="minio,spark,airflow"
+        ENABLED_SERVICES=minio,spark,airflow
     fi
 
     # Convert comma-separated list to array
@@ -95,7 +95,9 @@ parse_enabled_services() {
     # Validate that service scripts exist
     local missing_services=()
     for service in "${ENABLED_SERVICES_ARRAY[@]}"; do
-        service=$(echo "$service" | xargs)  # trim whitespace
+        # Trim whitespace using bash parameter expansion
+        service="${service#"${service%%[![:space:]]*}"}"
+        service="${service%"${service##*[![:space:]]}"}"
         if [[ ! -f "$TEMPLATE_FULL_PATH/k8s/scripts/$service.sh" ]]; then
             missing_services+=("$service")
         fi
@@ -104,7 +106,14 @@ parse_enabled_services() {
     if [[ ${#missing_services[@]} -gt 0 ]]; then
         print_error "Missing service scripts: ${missing_services[*]}"
         print_info "Available services:"
-        ls "$TEMPLATE_FULL_PATH/k8s/scripts/"*.sh 2>/dev/null | xargs -n1 basename | sed 's/.sh$//' | grep -v common | sed 's/^/  - /' || echo "  - No service scripts found"
+        for script in "$TEMPLATE_FULL_PATH/k8s/scripts/"*.sh; do
+            if [[ -f "$script" ]]; then
+                local basename_script=$(basename "$script" .sh)
+                if [[ "$basename_script" != "common" ]]; then
+                    echo "  - $basename_script"
+                fi
+            fi
+        done
         exit 1
     fi
 }
@@ -122,7 +131,9 @@ start_enabled_services() {
     create_namespace "$NAMESPACE" || return 1
 
     for service in "${ENABLED_SERVICES_ARRAY[@]}"; do
-        service=$(echo "$service" | xargs)  # trim whitespace
+        # Trim whitespace using bash parameter expansion
+        service="${service#"${service%%[![:space:]]*}"}"
+        service="${service%"${service##*[![:space:]]}"}"
         print_info "Deploying $service..."
         if ! bash "$TEMPLATE_FULL_PATH/k8s/scripts/$service.sh" deploy; then
             print_error "Failed to deploy $service"
@@ -141,7 +152,10 @@ stop_enabled_services() {
 
     # Stop in reverse order
     for ((i=${#ENABLED_SERVICES_ARRAY[@]}-1; i>=0; i--)); do
-        service=$(echo "${ENABLED_SERVICES_ARRAY[i]}" | xargs)  # trim whitespace
+        service="${ENABLED_SERVICES_ARRAY[i]}"
+        # Trim whitespace using bash parameter expansion
+        service="${service#"${service%%[![:space:]]*}"}"
+        service="${service%"${service##*[![:space:]]}"}"
         print_info "Removing $service..."
         bash "$TEMPLATE_FULL_PATH/k8s/scripts/$service.sh" remove
     done
@@ -156,7 +170,9 @@ show_enabled_services_status() {
     print_info "Service status for: ${ENABLED_SERVICES}"
 
     for service in "${ENABLED_SERVICES_ARRAY[@]}"; do
-        service=$(echo "$service" | xargs)  # trim whitespace
+        # Trim whitespace using bash parameter expansion
+        service="${service#"${service%%[![:space:]]*}"}"
+        service="${service%"${service##*[![:space:]]}"}"
         echo
         print_info "=== $service Status ==="
         bash "$TEMPLATE_FULL_PATH/k8s/scripts/$service.sh" status
@@ -170,7 +186,7 @@ delegate_to_template() {
 
     # Execute service command directly
     case "$command" in
-        minio|spark|airflow)
+        postgres|minio|spark|airflow|dremio)
             if [[ -f "$TEMPLATE_FULL_PATH/k8s/scripts/$command.sh" ]]; then
                 bash "$TEMPLATE_FULL_PATH/k8s/scripts/$command.sh" "$@"
             else
@@ -243,9 +259,11 @@ show_standard_usage() {
     echo "  minikube ip      - Show Minikube IP"
     echo
     echo "Individual Service Control:"
+    echo "  postgres {deploy|remove|status|logs}"
     echo "  minio {deploy|remove|status|logs|console}"
     echo "  spark {deploy|remove|status|logs|scale|ui}"
     echo "  airflow {deploy|remove|status|logs|cli|ui}"
+    echo "  dremio {deploy|remove|status|logs|ui}"
     echo
     echo "Configuration:"
     echo "  Template: $TEMPLATE_FULL_PATH"
@@ -266,7 +284,9 @@ restart_enabled_services() {
     print_info "Restarting services: ${ENABLED_SERVICES}"
 
     for service in "${ENABLED_SERVICES_ARRAY[@]}"; do
-        service=$(echo "$service" | xargs)  # trim whitespace
+        # Trim whitespace using bash parameter expansion
+        service="${service#"${service%%[![:space:]]*}"}"
+        service="${service%"${service##*[![:space:]]}"}"
         print_info "Restarting $service..."
         bash "$TEMPLATE_FULL_PATH/k8s/scripts/$service.sh" restart
     done
@@ -344,7 +364,9 @@ standard_main() {
                 # Show logs for all enabled services
                 parse_enabled_services
                 for service in "${ENABLED_SERVICES_ARRAY[@]}"; do
-                    service=$(echo "$service" | xargs)
+                    # Trim whitespace using bash parameter expansion
+                    service="${service#"${service%%[![:space:]]*}"}"
+                    service="${service%"${service##*[![:space:]]}"}"
                     echo
                     print_info "=== $service Logs ==="
                     bash "$TEMPLATE_FULL_PATH/k8s/scripts/$service.sh" logs
@@ -355,7 +377,7 @@ standard_main() {
             shift
             handle_minikube_command "${1:-status}"
             ;;
-        minio|spark|airflow)
+        postgres|minio|spark|airflow|dremio)
             # Direct service control - delegate to template
             delegate_to_template "$@"
             ;;
