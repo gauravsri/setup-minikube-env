@@ -86,7 +86,7 @@ cd ../my-project/scripts
 | **PostgreSQL** | Relational database | ~2Gi | 5432 |
 | **MinIO** | S3-compatible storage | ~1Gi | 9000, 9001 |
 | **Dremio** | SQL federation engine | ~4Gi | 9999, 9047 |
-| **Spark** | Distributed computing | ~8Gi | 8080, 7077 |
+| **Spark** | Distributed computing (master + workers + history) | ~8Gi | 8080, 7077, 18080 |
 | **Airflow** | Workflow orchestration | ~5Gi | 8080 |
 | **Redpanda** | Kafka streaming | ~3Gi | 9092, 9644 |
 | **ZincSearch** | Search engine | ~1Gi | 4080 |
@@ -99,7 +99,7 @@ cd ../my-project/scripts
 # Individual service management
 ./k8s/scripts/postgres.sh {deploy|remove|status|psql|create-db|backup}
 ./k8s/scripts/minio.sh {deploy|remove|status|logs|console}
-./k8s/scripts/spark.sh {deploy|remove|scale|status|submit|ui}
+./k8s/scripts/spark.sh {deploy|remove|scale|status|submit|ui|history-ui}
 ./k8s/scripts/airflow.sh {deploy|remove|status|cli|ui}
 ./k8s/scripts/dremio.sh {deploy|remove|status|ui}
 ./k8s/scripts/redpanda.sh {deploy|remove|status|topic|rpk}
@@ -203,13 +203,18 @@ Advanced:
 ```bash
 ./k8s/scripts/spark.sh deploy
 ./k8s/scripts/spark.sh scale 3    # 3 workers
-./k8s/scripts/spark.sh ui         # Opens UI
+./k8s/scripts/spark.sh ui         # Opens Master UI (port 8080)
+./k8s/scripts/spark.sh history-ui # Opens History Server UI (port 18080)
 
-# Submit job
+# Submit job with event logging enabled
 kubectl exec -it spark-master-0 -- \
   /opt/bitnami/spark/bin/spark-submit \
   --master spark://spark-master:7077 \
+  --conf spark.eventLog.enabled=true \
+  --conf spark.eventLog.dir=s3a://spark-events/ \
   --class com.example.Main /app/job.jar
+
+# Note: History Server displays completed applications from s3a://spark-events/
 ```
 
 **Airflow (Orchestration)**

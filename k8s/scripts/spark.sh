@@ -10,6 +10,7 @@ MANIFEST_FILE="$SCRIPT_DIR/../manifests/spark.yaml"
 NAMESPACE="${NAMESPACE:-default}"
 MASTER_DEPLOYMENT="spark-master"
 WORKER_DEPLOYMENT="spark-worker"
+HISTORY_DEPLOYMENT="spark-history"
 
 # Deploy Spark cluster
 deploy() {
@@ -36,6 +37,14 @@ deploy() {
         return 1
     }
 
+    # Finally wait for history server
+    print_info "Waiting for Spark History Server to be ready..."
+    wait_for_deployment "$HISTORY_DEPLOYMENT" "$NAMESPACE" 180 || {
+        print_error "Spark History Server deployment failed"
+        show_logs "app=spark,component=history" "$NAMESPACE" 50
+        return 1
+    }
+
     print_success "Spark cluster deployed successfully"
     show_status
 }
@@ -59,8 +68,12 @@ restart() {
     print_info "Restarting Spark Master..."
     kubectl rollout restart deployment/"$MASTER_DEPLOYMENT" -n "$NAMESPACE"
 
+    print_info "Restarting Spark History Server..."
+    kubectl rollout restart deployment/"$HISTORY_DEPLOYMENT" -n "$NAMESPACE"
+
     wait_for_deployment "$MASTER_DEPLOYMENT" "$NAMESPACE" 180
     wait_for_deployment "$WORKER_DEPLOYMENT" "$NAMESPACE" 180
+    wait_for_deployment "$HISTORY_DEPLOYMENT" "$NAMESPACE" 180
 
     print_success "Spark cluster restarted successfully"
 }
@@ -103,6 +116,11 @@ show_status() {
     get_pod_status "app=spark,component=worker" "$NAMESPACE"
 
     echo
+    print_info "Spark History Server:"
+    kubectl get deployment "$HISTORY_DEPLOYMENT" -n "$NAMESPACE"
+    get_pod_status "app=spark,component=history" "$NAMESPACE"
+
+    echo
     print_info "Services:"
     kubectl get service -l "app=spark" -n "$NAMESPACE"
 
@@ -111,14 +129,18 @@ show_status() {
     local minikube_ip=$(get_minikube_ip)
     local master_web_port=$(get_service_nodeport "spark-master" "$NAMESPACE" "web")
     local master_url_port=$(get_service_nodeport "spark-master" "$NAMESPACE" "master")
+    local history_port=$(get_service_nodeport "spark-history" "$NAMESPACE" "web")
 
     if [ -n "$minikube_ip" ] && [ -n "$master_web_port" ]; then
-        echo "  Master UI:  http://${minikube_ip}:${master_web_port}"
-        echo "  Master URL: spark://${minikube_ip}:${master_url_port}"
+        echo "  Master UI:    http://${minikube_ip}:${master_web_port}"
+        echo "  History UI:   http://${minikube_ip}:${history_port}"
+        echo "  Master URL:   spark://${minikube_ip}:${master_url_port}"
         echo
         echo "  Submit job: kubectl exec -it <spark-master-pod> -n $NAMESPACE -- \\"
         echo "    /opt/bitnami/spark/bin/spark-submit \\"
         echo "    --master spark://spark-master:7077 \\"
+        echo "    --conf spark.eventLog.enabled=true \\"
+        echo "    --conf spark.eventLog.dir=s3a://spark-events/ \\"
         echo "    --class <main-class> <jar-file>"
     fi
 }
@@ -138,8 +160,11 @@ show_logs() {
         worker)
             show_logs "app=spark,component=worker" "$NAMESPACE" "$lines" "$follow"
             ;;
+        history)
+            show_logs "app=spark,component=history" "$NAMESPACE" "$lines" "$follow"
+            ;;
         *)
-            print_error "Unknown component: $component (use 'master' or 'worker')"
+            print_error "Unknown component: $component (use 'master', 'worker', or 'history')"
             return 1
             ;;
     esac
@@ -180,9 +205,15 @@ open_ui() {
     minikube service spark-master -n "$NAMESPACE" --url=false
 }
 
+# Open Spark History Server UI in browser
+open_history_ui() {
+    print_info "Opening Spark History Server UI..."
+    minikube service spark-history -n "$NAMESPACE" --url=false
+}
+
 # Usage information
 usage() {
-    echo "Usage: $0 {deploy|remove|restart|scale|status|logs|submit|ui|help}"
+    echo "Usage: $0 {deploy|remove|restart|scale|status|logs|submit|ui|history-ui|help}"
     echo
     echo "Commands:"
     echo "  deploy           - Deploy Spark cluster to Kubernetes"
@@ -190,9 +221,10 @@ usage() {
     echo "  restart          - Restart Spark cluster"
     echo "  scale <replicas> - Scale Spark workers (default: 2)"
     echo "  status           - Show Spark cluster status and access URLs"
-    echo "  logs <component> - Show logs [master|worker] [lines] [follow]"
+    echo "  logs <component> - Show logs [master|worker|history] [lines] [follow]"
     echo "  submit           - Submit Spark job <jar> <class> [args...]"
     echo "  ui               - Open Spark Master UI in browser"
+    echo "  history-ui       - Open Spark History Server UI in browser"
     echo "  help             - Show this help message"
     echo
     echo "Environment Variables:"
@@ -202,7 +234,9 @@ usage() {
     echo "  $0 deploy"
     echo "  $0 scale 3"
     echo "  $0 logs master 100"
+    echo "  $0 logs history"
     echo "  $0 submit /path/to/app.jar com.example.Main arg1 arg2"
+    echo "  $0 history-ui"
 }
 
 # Main command handler
@@ -232,6 +266,9 @@ main() {
             ;;
         ui|web)
             open_ui
+            ;;
+        history-ui|history)
+            open_history_ui
             ;;
         help|--help|-h)
             usage
