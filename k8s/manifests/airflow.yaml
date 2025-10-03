@@ -1,37 +1,44 @@
 ---
-# PostgreSQL for Airflow metadata
+# PostgreSQL for Airflow metadata (EMBEDDED - Only deployed if standalone postgres not in ENABLED_SERVICES)
+# If you have postgres in ENABLED_SERVICES, this section will be skipped and Airflow will use standalone postgres
+# To use standalone postgres:
+#   1. Add 'postgres' to ENABLED_SERVICES
+#   2. Deploy postgres first: ./k8s/scripts/postgres.sh deploy
+#   3. Create airflow database: ./k8s/scripts/postgres.sh create-db airflow
+#   4. Create airflow user: ./k8s/scripts/postgres.sh create-user airflow airflow
+#   5. Grant privileges: ./k8s/scripts/postgres.sh grant airflow airflow
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: postgres-pvc
+  name: airflow-postgres-pvc
 spec:
   accessModes:
     - ReadWriteOnce
   resources:
     requests:
-      storage: 2Gi
+      storage: 5Gi
   storageClassName: standard
 
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: postgres
+  name: airflow-postgres
   labels:
-    app: postgres
+    app: airflow-postgres
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: postgres
+      app: airflow-postgres
   template:
     metadata:
       labels:
-        app: postgres
+        app: airflow-postgres
     spec:
       containers:
       - name: postgres
-        image: postgres:14-alpine
+        image: postgres:16-alpine
         env:
         - name: POSTGRES_USER
           value: "airflow"
@@ -49,30 +56,30 @@ spec:
           mountPath: /var/lib/postgresql/data
         resources:
           requests:
-            memory: "256Mi"
+            memory: "512Mi"
             cpu: "100m"
           limits:
-            memory: "512Mi"
+            memory: "1Gi"
             cpu: "500m"
       volumes:
       - name: data
         persistentVolumeClaim:
-          claimName: postgres-pvc
+          claimName: airflow-postgres-pvc
 
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: postgres
+  name: airflow-postgres
   labels:
-    app: postgres
+    app: airflow-postgres
 spec:
   ports:
   - port: 5432
     targetPort: 5432
     name: postgres
   selector:
-    app: postgres
+    app: airflow-postgres
 
 ---
 # Airflow Webserver
@@ -111,8 +118,10 @@ spec:
             --role Admin \
             --email admin@example.com || true
         env:
+        - name: POSTGRES_HOST
+          value: "airflow-postgres"  # Change to "postgres" if using standalone postgres service
         - name: AIRFLOW__CORE__SQL_ALCHEMY_CONN
-          value: "postgresql+psycopg2://airflow:airflow@postgres:5432/airflow"
+          value: "postgresql+psycopg2://airflow:airflow@$(POSTGRES_HOST):5432/airflow"
         - name: AIRFLOW__CORE__EXECUTOR
           value: "LocalExecutor"
         - name: AIRFLOW__CORE__LOAD_EXAMPLES
@@ -124,8 +133,10 @@ spec:
         - airflow
         - webserver
         env:
+        - name: POSTGRES_HOST
+          value: "airflow-postgres"  # Change to "postgres" if using standalone postgres service
         - name: AIRFLOW__CORE__SQL_ALCHEMY_CONN
-          value: "postgresql+psycopg2://airflow:airflow@postgres:5432/airflow"
+          value: "postgresql+psycopg2://airflow:airflow@$(POSTGRES_HOST):5432/airflow"
         - name: AIRFLOW__CORE__EXECUTOR
           value: "LocalExecutor"
         - name: AIRFLOW__WEBSERVER__EXPOSE_CONFIG
@@ -184,8 +195,10 @@ spec:
         - airflow
         - scheduler
         env:
+        - name: POSTGRES_HOST
+          value: "airflow-postgres"  # Change to "postgres" if using standalone postgres service
         - name: AIRFLOW__CORE__SQL_ALCHEMY_CONN
-          value: "postgresql+psycopg2://airflow:airflow@postgres:5432/airflow"
+          value: "postgresql+psycopg2://airflow:airflow@$(POSTGRES_HOST):5432/airflow"
         - name: AIRFLOW__CORE__EXECUTOR
           value: "LocalExecutor"
         - name: AIRFLOW__CORE__LOAD_EXAMPLES

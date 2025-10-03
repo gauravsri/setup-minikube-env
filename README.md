@@ -27,7 +27,8 @@ A production-ready, modular Kubernetes environment template for Minikube with 8 
 - **Flexible service selection**: Choose services via `ENABLED_SERVICES`
 - **Git submodule ready**: Version-controlled templates
 
-### 🐳 **8 Production-Ready Services**
+### 🐳 **9 Production-Ready Services**
+- **Database**: PostgreSQL (relational database)
 - **Data Storage**: MinIO (S3), Dremio (SQL federation)
 - **Processing**: Apache Spark (distributed computing)
 - **Orchestration**: Apache Airflow (workflow management)
@@ -82,6 +83,7 @@ cd ../my-project/scripts
 
 | Service | Description | Memory | Port(s) |
 |---------|-------------|---------|---------|
+| **PostgreSQL** | Relational database | ~2Gi | 5432 |
 | **MinIO** | S3-compatible storage | ~1Gi | 9000, 9001 |
 | **Dremio** | SQL federation engine | ~4Gi | 9999, 9047 |
 | **Spark** | Distributed computing | ~8Gi | 8080, 7077 |
@@ -95,6 +97,7 @@ cd ../my-project/scripts
 
 ```bash
 # Individual service management
+./k8s/scripts/postgres.sh {deploy|remove|status|psql|create-db|backup}
 ./k8s/scripts/minio.sh {deploy|remove|status|logs|console}
 ./k8s/scripts/spark.sh {deploy|remove|scale|status|submit|ui}
 ./k8s/scripts/airflow.sh {deploy|remove|status|cli|ui}
@@ -176,6 +179,19 @@ Advanced:
 
 ### Service Examples
 
+**PostgreSQL (Database)**
+```bash
+./k8s/scripts/postgres.sh deploy
+./k8s/scripts/postgres.sh psql                      # Open PostgreSQL CLI
+./k8s/scripts/postgres.sh create-db myapp           # Create database
+./k8s/scripts/postgres.sh create-user myuser pass123
+./k8s/scripts/postgres.sh grant myapp myuser        # Grant privileges
+./k8s/scripts/postgres.sh backup mydb backup.sql    # Backup database
+
+# Access: postgres/postgres
+# Connection: postgresql://postgres:postgres@<minikube-ip>:30432/postgres
+```
+
 **MinIO (S3 Storage)**
 ```bash
 ./k8s/scripts/minio.sh deploy
@@ -238,23 +254,29 @@ MINIO_STORAGE_SIZE="10Gi"
 ### Service Combinations
 
 ```bash
-# Minimal (1Gi)
-ENABLED_SERVICES="minio"
+# Minimal Database (2Gi)
+ENABLED_SERVICES="postgres"
+
+# Database + Storage (3Gi)
+ENABLED_SERVICES="postgres,minio"
 
 # Basic Data Stack (9Gi)
 ENABLED_SERVICES="minio,spark"
 
-# SQL Federation (5Gi)
-ENABLED_SERVICES="minio,dremio"
+# SQL Federation (7Gi)
+ENABLED_SERVICES="postgres,minio,dremio"
 
-# Full Orchestration (14Gi) - MAX for M4 16GB
+# Full Orchestration with standalone postgres (16Gi) - MAX for M4 16GB
+ENABLED_SERVICES="postgres,minio,spark,airflow"
+
+# Full Orchestration with embedded postgres (14Gi)
 ENABLED_SERVICES="minio,spark,airflow"
 
 # Streaming Platform (12Gi)
 ENABLED_SERVICES="redpanda,spark,minio"
 
-# All 8 Services (23Gi+) - Requires 32GB+ RAM
-ENABLED_SERVICES="minio,dremio,spark,airflow,redpanda,zincsearch,dex,postfix"
+# All 9 Services (25Gi+) - Requires 32GB+ RAM
+ENABLED_SERVICES="postgres,minio,dremio,spark,airflow,redpanda,zincsearch,dex,postfix"
 ```
 
 ## M4 Optimization Guide

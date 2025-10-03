@@ -8,7 +8,7 @@ source "$SCRIPT_DIR/common.sh"
 SERVICE_NAME="airflow"
 MANIFEST_FILE="$SCRIPT_DIR/../manifests/airflow.yaml"
 NAMESPACE="${NAMESPACE:-default}"
-POSTGRES_DEPLOYMENT="postgres"
+POSTGRES_DEPLOYMENT="airflow-postgres"
 WEBSERVER_DEPLOYMENT="airflow-webserver"
 SCHEDULER_DEPLOYMENT="airflow-scheduler"
 
@@ -19,15 +19,33 @@ deploy() {
     ensure_minikube_running || return 1
     create_namespace "$NAMESPACE" || return 1
 
+    # Check if standalone postgres service is enabled
+    local use_standalone_postgres=false
+    if echo "${ENABLED_SERVICES:-}" | grep -q "postgres"; then
+        print_info "Using standalone PostgreSQL service"
+        use_standalone_postgres=true
+
+        # Verify standalone postgres is running
+        if ! resource_exists statefulset "postgres" "$NAMESPACE" && ! resource_exists deployment "postgres" "$NAMESPACE"; then
+            print_error "Standalone PostgreSQL not found. Please deploy postgres first:"
+            print_error "  ./k8s/scripts/postgres.sh deploy"
+            return 1
+        fi
+    else
+        print_info "Using embedded PostgreSQL (will be deployed with Airflow)"
+    fi
+
     apply_manifest "$MANIFEST_FILE" "$NAMESPACE" || return 1
 
-    # Wait for PostgreSQL first
-    print_info "Waiting for PostgreSQL to be ready..."
-    wait_for_deployment "$POSTGRES_DEPLOYMENT" "$NAMESPACE" 120 || {
-        print_error "PostgreSQL deployment failed"
-        show_logs "app=postgres" "$NAMESPACE" 50
-        return 1
-    }
+    # Wait for PostgreSQL if embedded (not standalone)
+    if [ "$use_standalone_postgres" = false ]; then
+        print_info "Waiting for embedded PostgreSQL to be ready..."
+        wait_for_deployment "$POSTGRES_DEPLOYMENT" "$NAMESPACE" 120 || {
+            print_error "PostgreSQL deployment failed"
+            show_logs "app=airflow-postgres" "$NAMESPACE" 50
+            return 1
+        }
+    fi
 
     # Wait for webserver (includes DB init)
     print_info "Waiting for Airflow Webserver to be ready (this may take a few minutes)..."
