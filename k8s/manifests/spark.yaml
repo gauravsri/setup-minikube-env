@@ -28,6 +28,8 @@ spec:
         env:
         - name: SPARK_NO_DAEMONIZE
           value: "true"
+        - name: SPARK_MASTER_OPTS
+          value: "-Dspark.eventLog.enabled=true -Dspark.eventLog.dir=s3a://spark-events/ -Dspark.hadoop.fs.s3a.endpoint=http://minio:9000 -Dspark.hadoop.fs.s3a.access.key=minioadmin -Dspark.hadoop.fs.s3a.secret.key=minioadmin -Dspark.hadoop.fs.s3a.path.style.access=true -Dspark.hadoop.fs.s3a.impl=org.apache.hadoop.fs.s3a.S3AFileSystem -Dspark.hadoop.fs.s3a.connection.ssl.enabled=false"
         ports:
         - containerPort: 8080
           name: web
@@ -146,3 +148,98 @@ spec:
   selector:
     app: spark
     component: worker
+
+---
+# Spark History Server Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: spark-history
+  labels:
+    app: spark
+    component: history
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: spark
+      component: history
+  template:
+    metadata:
+      labels:
+        app: spark
+        component: history
+    spec:
+      enableServiceLinks: false
+      initContainers:
+      - name: download-aws-jars
+        image: curlimages/curl:latest
+        command: ["/bin/sh", "-c"]
+        args:
+        - |
+          mkdir -p /opt/spark/jars
+          cd /opt/spark/jars
+          curl -O https://repo1.maven.org/maven2/org/apache/hadoop/hadoop-aws/3.3.4/hadoop-aws-3.3.4.jar
+          curl -O https://repo1.maven.org/maven2/com/amazonaws/aws-java-sdk-bundle/1.12.262/aws-java-sdk-bundle-1.12.262.jar
+        volumeMounts:
+        - name: spark-jars
+          mountPath: /opt/spark/jars
+      containers:
+      - name: spark-history
+        image: apache/spark:3.5.3
+        command: ["/opt/spark/bin/spark-class"]
+        args: ["org.apache.spark.deploy.history.HistoryServer"]
+        env:
+        - name: SPARK_NO_DAEMONIZE
+          value: "true"
+        - name: SPARK_DIST_CLASSPATH
+          value: "/opt/spark/jars-extra/*"
+        - name: SPARK_HISTORY_OPTS
+          value: "-Dspark.history.fs.logDirectory=s3a://spark-events/ -Dspark.hadoop.fs.s3a.endpoint=http://minio:9000 -Dspark.hadoop.fs.s3a.access.key=minioadmin -Dspark.hadoop.fs.s3a.secret.key=minioadmin -Dspark.hadoop.fs.s3a.path.style.access=true -Dspark.hadoop.fs.s3a.impl=org.apache.hadoop.fs.s3a.S3AFileSystem -Dspark.hadoop.fs.s3a.connection.ssl.enabled=false"
+        volumeMounts:
+        - name: spark-jars
+          mountPath: /opt/spark/jars-extra
+        ports:
+        - containerPort: 18080
+          name: web
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 18080
+          initialDelaySeconds: 60
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 18080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+      volumes:
+      - name: spark-jars
+        emptyDir: {}
+
+---
+# Spark History Server Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: spark-history
+  labels:
+    app: spark
+    component: history
+spec:
+  type: NodePort
+  ports:
+  - port: 18080
+    targetPort: 18080
+    name: web
+  selector:
+    app: spark
+    component: history
