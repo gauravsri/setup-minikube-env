@@ -1,3 +1,0 @@
-[submodule "setup-podman-env"]
-	path = setup-podman-env
-	url = git@github.com:gauravsri/setup-podman-env.git

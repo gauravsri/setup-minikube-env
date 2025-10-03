@@ -1,0 +1,21 @@
+#!/bin/bash
+# Example setup-env.sh for projects using setup-minikube-env template
+# This file demonstrates how to use the template in your project
+
+SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]}")"
+
+# Load project wrapper framework
+# Adjust the path based on where you placed the template
+source "$SCRIPT_DIR/project-wrapper.sh"
+
+# Initialize with project configuration
+# First argument: script directory
+# Second argument: project name (used for namespace)
+init_project_wrapper "$SCRIPT_DIR" "example-project"
+
+# Use standard main function to handle all commands
+# First argument: display title for the project
+# Remaining arguments: command line arguments from user
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    standard_main "EXAMPLE PROJECT" "$@"
+fi

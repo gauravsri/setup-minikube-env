@@ -1,0 +1,97 @@
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: dremio-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: standard
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dremio
+  labels:
+    app: dremio
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: dremio
+  template:
+    metadata:
+      labels:
+        app: dremio
+    spec:
+      containers:
+      - name: dremio
+        image: dremio/dremio-oss:latest
+        env:
+        - name: DREMIO_JAVA_SERVER_EXTRA_OPTS
+          value: "-Xms512m -Xmx2048m -XX:+UseG1GC"
+        ports:
+        - containerPort: 9047
+          name: jdbc
+        - containerPort: 31010
+          name: fabric
+        - containerPort: 45678
+          name: conduit
+        - containerPort: 9999
+          name: web
+        volumeMounts:
+        - name: data
+          mountPath: /opt/dremio/data
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "2000m"
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 9999
+          initialDelaySeconds: 120
+          periodSeconds: 30
+          timeoutSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 9999
+          initialDelaySeconds: 60
+          periodSeconds: 10
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: dremio-pvc
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dremio
+  labels:
+    app: dremio
+spec:
+  type: NodePort
+  ports:
+  - port: 9999
+    targetPort: 9999
+    name: web
+  - port: 9047
+    targetPort: 9047
+    name: jdbc
+  - port: 31010
+    targetPort: 31010
+    name: fabric
+  - port: 45678
+    targetPort: 45678
+    name: conduit
+  selector:
+    app: dremio

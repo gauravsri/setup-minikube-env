@@ -1,0 +1,134 @@
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: redpanda-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+  storageClassName: standard
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redpanda
+  labels:
+    app: redpanda
+spec:
+  serviceName: redpanda
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redpanda
+  template:
+    metadata:
+      labels:
+        app: redpanda
+    spec:
+      containers:
+      - name: redpanda
+        image: vectorized/redpanda:latest
+        command:
+        - /usr/bin/rpk
+        - redpanda
+        - start
+        - --smp
+        - "1"
+        - --reserve-memory
+        - "0M"
+        - --overprovisioned
+        - --node-id
+        - "0"
+        - --kafka-addr
+        - PLAINTEXT://0.0.0.0:9092
+        - --advertise-kafka-addr
+        - PLAINTEXT://redpanda-0.redpanda:9092
+        ports:
+        - containerPort: 9092
+          name: kafka
+        - containerPort: 9644
+          name: admin
+        - containerPort: 8082
+          name: http-proxy
+        - containerPort: 8081
+          name: schema-registry
+        volumeMounts:
+        - name: data
+          mountPath: /var/lib/redpanda/data
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+        livenessProbe:
+          httpGet:
+            path: /v1/status/ready
+            port: 9644
+          initialDelaySeconds: 30
+          periodSeconds: 20
+        readinessProbe:
+          httpGet:
+            path: /v1/status/ready
+            port: 9644
+          initialDelaySeconds: 15
+          periodSeconds: 10
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: redpanda-pvc
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redpanda
+  labels:
+    app: redpanda
+spec:
+  clusterIP: None
+  ports:
+  - port: 9092
+    targetPort: 9092
+    name: kafka
+  - port: 9644
+    targetPort: 9644
+    name: admin
+  - port: 8082
+    targetPort: 8082
+    name: http-proxy
+  - port: 8081
+    targetPort: 8081
+    name: schema-registry
+  selector:
+    app: redpanda
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redpanda-external
+  labels:
+    app: redpanda
+spec:
+  type: NodePort
+  ports:
+  - port: 9092
+    targetPort: 9092
+    name: kafka
+  - port: 9644
+    targetPort: 9644
+    name: admin
+  - port: 8082
+    targetPort: 8082
+    name: http-proxy
+  - port: 8081
+    targetPort: 8081
+    name: schema-registry
+  selector:
+    app: redpanda
