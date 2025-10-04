@@ -86,12 +86,14 @@ cd ../my-project/scripts
 | **PostgreSQL** | Relational database | ~2Gi | 5432 |
 | **MinIO** | S3-compatible storage | ~1Gi | 9000, 9001 |
 | **Dremio** | SQL federation engine | ~4Gi | 9999, 9047 |
-| **Spark** | Distributed computing (master + workers + history) | ~8Gi | 8080, 7077, 18080 |
+| **Spark** | Spark on Kubernetes (RBAC + dynamic pods) ⭐ | ~0Gi idle | Dynamic |
 | **Airflow** | Workflow orchestration | ~5Gi | 8080 |
 | **Redpanda** | Kafka streaming | ~3Gi | 9092, 9644 |
 | **ZincSearch** | Search engine | ~1Gi | 4080 |
 | **Dex** | OIDC authentication | ~256Mi | 5556 |
 | **Postfix** | Email relay | ~256Mi | 25 |
+
+**Note**: ⭐ Spark now uses Kubernetes-native dynamic pods instead of standalone cluster. No persistent pods = ~6Gi memory saved!
 
 ### Service Commands
 
@@ -199,22 +201,31 @@ Advanced:
 # Access: minioadmin/minioadmin
 ```
 
-**Spark (Processing)**
+**Spark (Processing)** ⭐ **NEW: Kubernetes-Native**
 ```bash
+# Deploy RBAC and PVC (no persistent cluster pods)
 ./k8s/scripts/spark.sh deploy
-./k8s/scripts/spark.sh scale 3    # 3 workers
-./k8s/scripts/spark.sh ui         # Opens Master UI (port 8080)
-./k8s/scripts/spark.sh history-ui # Opens History Server UI (port 18080)
 
-# Submit job with event logging enabled
-kubectl exec -it spark-master-0 -- \
-  /opt/bitnami/spark/bin/spark-submit \
-  --master spark://spark-master:7077 \
-  --conf spark.eventLog.enabled=true \
-  --conf spark.eventLog.dir=s3a://spark-events/ \
-  --class com.example.Main /app/job.jar
+# Submit jobs via Kubernetes (dynamic pods)
+kubectl run spark-job --rm -i --tty --restart=Never \
+  --namespace=your-namespace \
+  --serviceaccount=spark \
+  --image=apache/spark:3.5.3 \
+  -- /opt/spark/bin/spark-submit \
+     --master k8s://https://kubernetes.default.svc \
+     --deploy-mode cluster \
+     --conf spark.kubernetes.namespace=your-namespace \
+     --conf spark.kubernetes.authenticate.driver.serviceAccountName=spark \
+     --conf spark.kubernetes.container.image=apache/spark:3.5.3 \
+     --class com.example.Main \
+     local:///project/target/app.jar
 
-# Note: History Server displays completed applications from s3a://spark-events/
+# Monitor dynamic Spark pods
+kubectl get pods -n your-namespace | grep spark
+kubectl logs -n your-namespace <driver-pod-name> -f
+
+# Benefits: ~6Gi memory saved (no idle cluster), Kubernetes-native RBAC
+# See k8s/manifests/spark.yaml for detailed usage examples
 ```
 
 **Airflow (Orchestration)**
@@ -250,10 +261,11 @@ MINIKUBE_MEMORY="12288"     # 12GB (leave 4GB for macOS)
 MINIKUBE_DISK_SIZE="40g"
 
 # Service Resources (examples)
-SPARK_WORKER_REPLICAS="2"
-SPARK_WORKER_MEMORY="2G"
-SPARK_WORKER_CORES="2"
 MINIO_STORAGE_SIZE="10Gi"
+DREMIO_MEMORY_LIMIT="4Gi"
+
+# Note: Spark config moved to spark-submit args (dynamic pods)
+# No SPARK_WORKER_* variables needed with Spark on Kubernetes
 ```
 
 ### Service Combinations
@@ -265,22 +277,22 @@ ENABLED_SERVICES="postgres"
 # Database + Storage (3Gi)
 ENABLED_SERVICES="postgres,minio"
 
-# Basic Data Stack (9Gi)
+# Basic Data Stack (~2Gi - Spark on Kubernetes)
 ENABLED_SERVICES="minio,spark"
 
 # SQL Federation (7Gi)
 ENABLED_SERVICES="postgres,minio,dremio"
 
-# Full Orchestration with standalone postgres (16Gi) - MAX for M4 16GB
+# Full Data Platform with Dremio (14Gi) - Recommended for M4 16GB ⭐
+ENABLED_SERVICES="postgres,minio,spark,airflow,dremio"
+
+# Full Orchestration without Dremio (10Gi)
 ENABLED_SERVICES="postgres,minio,spark,airflow"
 
-# Full Orchestration with embedded postgres (14Gi)
-ENABLED_SERVICES="minio,spark,airflow"
-
-# Streaming Platform (12Gi)
+# Streaming Platform (~7Gi - Spark on Kubernetes)
 ENABLED_SERVICES="redpanda,spark,minio"
 
-# All 9 Services (25Gi+) - Requires 32GB+ RAM
+# All 9 Services (~18Gi with Spark on Kubernetes) - Works on M4 16GB! ⭐
 ENABLED_SERVICES="postgres,minio,dremio,spark,airflow,redpanda,zincsearch,dex,postfix"
 ```
 

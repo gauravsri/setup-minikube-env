@@ -1,5 +1,5 @@
 #!/bin/bash
-# Apache Spark management script for Kubernetes/Minikube
+# Spark on Kubernetes management script for Kubernetes/Minikube
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/common.sh"
@@ -8,235 +8,297 @@ source "$SCRIPT_DIR/common.sh"
 SERVICE_NAME="spark"
 MANIFEST_FILE="$SCRIPT_DIR/../manifests/spark.yaml"
 NAMESPACE="${NAMESPACE:-default}"
-MASTER_DEPLOYMENT="spark-master"
-WORKER_DEPLOYMENT="spark-worker"
-HISTORY_DEPLOYMENT="spark-history"
+PROJECT_PATH="${SPARK_PROJECT_PATH:-$(pwd)}"
 
-# Deploy Spark cluster
+# Deploy Spark on Kubernetes (RBAC + PVC)
 deploy() {
-    print_header "Deploying Apache Spark Cluster"
+    print_header "Deploying Spark on Kubernetes"
 
     ensure_minikube_running || return 1
     create_namespace "$NAMESPACE" || return 1
 
-    apply_manifest "$MANIFEST_FILE" "$NAMESPACE" || return 1
+    # Apply manifest with dynamic PROJECT_PATH substitution
+    print_info "Using project path: $PROJECT_PATH"
 
-    # Wait for master first
-    print_info "Waiting for Spark Master to be ready..."
-    wait_for_deployment "$MASTER_DEPLOYMENT" "$NAMESPACE" 180 || {
-        print_error "Spark Master deployment failed"
-        show_logs "app=spark,component=master" "$NAMESPACE" 50
+    # Create temporary manifest with substituted PROJECT_PATH
+    local temp_manifest=$(mktemp)
+    sed "s|path: /path/to/your/project|path: $PROJECT_PATH|g" "$MANIFEST_FILE" > "$temp_manifest"
+
+    apply_manifest "$temp_manifest" "$NAMESPACE" || {
+        rm -f "$temp_manifest"
+        return 1
+    }
+    rm -f "$temp_manifest"
+
+    # Wait for ServiceAccount
+    print_info "Waiting for Spark ServiceAccount..."
+    kubectl get serviceaccount spark -n "$NAMESPACE" &>/dev/null || {
+        print_error "Spark ServiceAccount creation failed"
         return 1
     }
 
-    # Then wait for workers
-    print_info "Waiting for Spark Workers to be ready..."
-    wait_for_deployment "$WORKER_DEPLOYMENT" "$NAMESPACE" 180 || {
-        print_error "Spark Worker deployment failed"
-        show_logs "app=spark,component=worker" "$NAMESPACE" 50
-        return 1
-    }
+    # Wait for PVC to be bound
+    print_info "Waiting for PVC to be bound..."
+    local max_wait=60
+    local count=0
+    while [ $count -lt $max_wait ]; do
+        local status=$(kubectl get pvc spark-project-pvc -n "$NAMESPACE" -o jsonpath='{.status.phase}' 2>/dev/null)
+        if [ "$status" == "Bound" ]; then
+            print_success "PVC is bound"
+            break
+        fi
+        count=$((count + 1))
+        sleep 2
+    done
 
-    # Finally wait for history server
-    print_info "Waiting for Spark History Server to be ready..."
-    wait_for_deployment "$HISTORY_DEPLOYMENT" "$NAMESPACE" 180 || {
-        print_error "Spark History Server deployment failed"
-        show_logs "app=spark,component=history" "$NAMESPACE" 50
-        return 1
-    }
+    if [ $count -ge $max_wait ]; then
+        print_warning "PVC not bound yet. You may need to start minikube mount:"
+        echo
+        echo "  minikube mount $PROJECT_PATH:$PROJECT_PATH --9p-version=9p2000.L --uid=1000 --gid=1000 &"
+        echo
+    fi
 
-    print_success "Spark cluster deployed successfully"
+    print_success "Spark on Kubernetes deployed successfully"
+    echo
+    print_info "Components deployed:"
+    echo "  ✓ ServiceAccount: spark"
+    echo "  ✓ Role: spark-role"
+    echo "  ✓ RoleBinding: spark-role-binding"
+    echo "  ✓ PersistentVolume: spark-project-pv"
+    echo "  ✓ PersistentVolumeClaim: spark-project-pvc"
+    echo
     show_status
 }
 
-# Remove Spark cluster
+# Remove Spark RBAC and PVC
 remove() {
-    print_header "Removing Apache Spark Cluster"
+    print_header "Removing Spark on Kubernetes"
 
     delete_manifest "$MANIFEST_FILE" "$NAMESPACE"
 
-    print_success "Spark cluster removed"
+    print_success "Spark resources removed"
 }
 
-# Restart Spark cluster
-restart() {
-    print_header "Restarting Apache Spark Cluster"
-
-    print_info "Restarting Spark Workers..."
-    kubectl rollout restart deployment/"$WORKER_DEPLOYMENT" -n "$NAMESPACE"
-
-    print_info "Restarting Spark Master..."
-    kubectl rollout restart deployment/"$MASTER_DEPLOYMENT" -n "$NAMESPACE"
-
-    print_info "Restarting Spark History Server..."
-    kubectl rollout restart deployment/"$HISTORY_DEPLOYMENT" -n "$NAMESPACE"
-
-    wait_for_deployment "$MASTER_DEPLOYMENT" "$NAMESPACE" 180
-    wait_for_deployment "$WORKER_DEPLOYMENT" "$NAMESPACE" 180
-    wait_for_deployment "$HISTORY_DEPLOYMENT" "$NAMESPACE" 180
-
-    print_success "Spark cluster restarted successfully"
-}
-
-# Scale Spark workers
-scale_workers() {
-    local replicas="${1:-2}"
-
-    print_header "Scaling Spark Workers"
-
-    print_info "Scaling workers to $replicas replicas..."
-    kubectl scale deployment/"$WORKER_DEPLOYMENT" -n "$NAMESPACE" --replicas="$replicas" || {
-        print_error "Failed to scale workers"
-        return 1
-    }
-
-    wait_for_deployment "$WORKER_DEPLOYMENT" "$NAMESPACE" 180
-
-    print_success "Spark workers scaled to $replicas"
-    show_status
-}
-
-# Show Spark cluster status
+# Show Spark on Kubernetes status
 show_status() {
-    print_header "Apache Spark Cluster Status"
+    print_header "Spark on Kubernetes Status"
 
-    if ! resource_exists deployment "$MASTER_DEPLOYMENT" "$NAMESPACE"; then
-        print_warning "Spark cluster is not deployed"
+    if ! resource_exists serviceaccount "spark" "$NAMESPACE"; then
+        print_warning "Spark on Kubernetes is not deployed"
         return 1
     fi
 
     echo
-    print_info "Spark Master:"
-    kubectl get deployment "$MASTER_DEPLOYMENT" -n "$NAMESPACE"
-    get_pod_status "app=spark,component=master" "$NAMESPACE"
+    print_info "RBAC Resources:"
+    kubectl get serviceaccount spark -n "$NAMESPACE" 2>/dev/null && echo "  ✓ ServiceAccount: spark"
+    kubectl get role spark-role -n "$NAMESPACE" 2>/dev/null && echo "  ✓ Role: spark-role"
+    kubectl get rolebinding spark-role-binding -n "$NAMESPACE" 2>/dev/null && echo "  ✓ RoleBinding: spark-role-binding"
 
     echo
-    print_info "Spark Workers:"
-    kubectl get deployment "$WORKER_DEPLOYMENT" -n "$NAMESPACE"
-    get_pod_status "app=spark,component=worker" "$NAMESPACE"
+    print_info "Storage Resources:"
+    kubectl get pv spark-project-pv 2>/dev/null
+    echo
+    kubectl get pvc spark-project-pvc -n "$NAMESPACE" 2>/dev/null
 
     echo
-    print_info "Spark History Server:"
-    kubectl get deployment "$HISTORY_DEPLOYMENT" -n "$NAMESPACE"
-    get_pod_status "app=spark,component=history" "$NAMESPACE"
-
-    echo
-    print_info "Services:"
-    kubectl get service -l "app=spark" -n "$NAMESPACE"
-
-    echo
-    print_info "Access URLs:"
-    local minikube_ip=$(get_minikube_ip)
-    local master_web_port=$(get_service_nodeport "spark-master" "$NAMESPACE" "web")
-    local master_url_port=$(get_service_nodeport "spark-master" "$NAMESPACE" "master")
-    local history_port=$(get_service_nodeport "spark-history" "$NAMESPACE" "web")
-
-    if [ -n "$minikube_ip" ] && [ -n "$master_web_port" ]; then
-        echo "  Master UI:    http://${minikube_ip}:${master_web_port}"
-        echo "  History UI:   http://${minikube_ip}:${history_port}"
-        echo "  Master URL:   spark://${minikube_ip}:${master_url_port}"
-        echo
-        echo "  Submit job: kubectl exec -it <spark-master-pod> -n $NAMESPACE -- \\"
-        echo "    /opt/bitnami/spark/bin/spark-submit \\"
-        echo "    --master spark://spark-master:7077 \\"
-        echo "    --conf spark.eventLog.enabled=true \\"
-        echo "    --conf spark.eventLog.dir=s3a://spark-events/ \\"
-        echo "    --class <main-class> <jar-file>"
+    print_info "Dynamic Spark Pods (currently running):"
+    local spark_pods=$(kubectl get pods -n "$NAMESPACE" -l spark-role=driver -o name 2>/dev/null)
+    if [ -z "$spark_pods" ]; then
+        echo "  (none - pods are created on-demand when jobs run)"
+    else
+        kubectl get pods -n "$NAMESPACE" -l spark-role=driver
     fi
+
+    echo
+    print_info "Usage:"
+    echo "  See detailed examples in: $MANIFEST_FILE"
+    echo
+    echo "  Quick start:"
+    echo "    # 1. Ensure minikube mount is active"
+    echo "    minikube mount $PROJECT_PATH:$PROJECT_PATH --9p-version=9p2000.L --uid=1000 --gid=1000 &"
+    echo
+    echo "    # 2. Submit a Spark job"
+    echo "    kubectl run spark-job --rm -i --tty --restart=Never \\"
+    echo "      --namespace=$NAMESPACE \\"
+    echo "      --serviceaccount=spark \\"
+    echo "      --image=apache/spark:3.5.3 \\"
+    echo "      -- /opt/spark/bin/spark-submit \\"
+    echo "         --master k8s://https://kubernetes.default.svc \\"
+    echo "         --deploy-mode cluster \\"
+    echo "         --conf spark.kubernetes.namespace=$NAMESPACE \\"
+    echo "         --conf spark.kubernetes.authenticate.driver.serviceAccountName=spark \\"
+    echo "         local:///project/target/your-app.jar"
+    echo
 }
 
-# Show logs
+# Setup minikube mount
+setup_mount() {
+    local mount_path="${1:-$PROJECT_PATH}"
+
+    print_header "Setting up Minikube Mount"
+
+    # Check if mount is already active
+    if ps aux | grep -q "[m]inikube mount $mount_path"; then
+        print_success "Minikube mount already active for: $mount_path"
+        return 0
+    fi
+
+    print_info "Starting minikube mount for: $mount_path"
+    minikube mount "$mount_path:$mount_path" --9p-version=9p2000.L --uid=1000 --gid=1000 &
+    local mount_pid=$!
+
+    print_success "Minikube mount started (PID: $mount_pid)"
+    print_info "Mount will remain active in background"
+
+    # Wait a bit for mount to be ready
+    sleep 3
+
+    # Verify PVC binding
+    print_info "Verifying PVC binding..."
+    local count=0
+    while [ $count -lt 30 ]; do
+        local status=$(kubectl get pvc spark-project-pvc -n "$NAMESPACE" -o jsonpath='{.status.phase}' 2>/dev/null)
+        if [ "$status" == "Bound" ]; then
+            print_success "PVC is now bound"
+            return 0
+        fi
+        count=$((count + 1))
+        sleep 2
+    done
+
+    print_warning "PVC not bound yet, but mount is running"
+}
+
+# Check mount status
+check_mount() {
+    print_header "Minikube Mount Status"
+
+    local mount_process=$(ps aux | grep "[m]inikube mount")
+    if [ -z "$mount_process" ]; then
+        print_warning "No minikube mount process found"
+        echo
+        echo "Start mount with:"
+        echo "  ./spark.sh mount [path]"
+        return 1
+    fi
+
+    echo "$mount_process"
+    echo
+    print_success "Minikube mount is active"
+}
+
+# Show logs for Spark driver/executor pods
 show_logs() {
-    local component="${1:-master}"
+    local pod_name="$1"
     local lines="${2:-50}"
     local follow="${3:-false}"
 
-    print_header "Spark $component Logs"
+    print_header "Spark Pod Logs"
 
-    case "$component" in
-        master)
-            show_logs "app=spark,component=master" "$NAMESPACE" "$lines" "$follow"
-            ;;
-        worker)
-            show_logs "app=spark,component=worker" "$NAMESPACE" "$lines" "$follow"
-            ;;
-        history)
-            show_logs "app=spark,component=history" "$NAMESPACE" "$lines" "$follow"
-            ;;
-        *)
-            print_error "Unknown component: $component (use 'master', 'worker', or 'history')"
+    if [ -z "$pod_name" ]; then
+        # Find most recent driver pod
+        pod_name=$(kubectl get pods -n "$NAMESPACE" -l spark-role=driver --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1:].metadata.name}' 2>/dev/null)
+
+        if [ -z "$pod_name" ]; then
+            print_error "No Spark driver pods found"
+            echo
+            echo "List all pods with:"
+            echo "  kubectl get pods -n $NAMESPACE | grep spark"
             return 1
-            ;;
-    esac
-}
+        fi
 
-# Submit a Spark job
-submit_job() {
-    local jar_file="$1"
-    local main_class="$2"
-    shift 2
-    local args="$@"
-
-    if [ -z "$jar_file" ] || [ -z "$main_class" ]; then
-        print_error "Usage: submit_job <jar-file> <main-class> [args...]"
-        return 1
+        print_info "Showing logs for most recent driver: $pod_name"
     fi
 
-    local master_pod=$(kubectl get pods -l "app=spark,component=master" -n "$NAMESPACE" -o jsonpath='{.items[0].metadata.name}')
-
-    if [ -z "$master_pod" ]; then
-        print_error "Spark master pod not found"
-        return 1
+    if [ "$follow" == "true" ]; then
+        kubectl logs -n "$NAMESPACE" "$pod_name" -f --tail="$lines"
+    else
+        kubectl logs -n "$NAMESPACE" "$pod_name" --tail="$lines"
     fi
-
-    print_info "Submitting Spark job to $master_pod..."
-
-    kubectl exec -it "$master_pod" -n "$NAMESPACE" -- \
-        /opt/bitnami/spark/bin/spark-submit \
-        --master spark://spark-master:7077 \
-        --class "$main_class" \
-        "$jar_file" \
-        $args
 }
 
-# Open Spark Master UI in browser
-open_ui() {
-    print_info "Opening Spark Master UI..."
-    minikube service spark-master -n "$NAMESPACE" --url=false
-}
+# Submit example Spark job
+submit_example() {
+    print_header "Submitting Example Spark Job"
 
-# Open Spark History Server UI in browser
-open_history_ui() {
-    print_info "Opening Spark History Server UI..."
-    minikube service spark-history -n "$NAMESPACE" --url=false
+    cat <<'EOF'
+kubectl run spark-example --rm -i --tty --restart=Never \
+  --namespace=spark-tutorial \
+  --serviceaccount=spark \
+  --image=apache/spark:3.5.3 \
+  -- /opt/spark/bin/spark-submit \
+     --master k8s://https://kubernetes.default.svc \
+     --deploy-mode cluster \
+     --name SparkPiExample \
+     --class org.apache.spark.examples.SparkPi \
+     --conf spark.kubernetes.namespace=spark-tutorial \
+     --conf spark.kubernetes.authenticate.driver.serviceAccountName=spark \
+     --conf spark.kubernetes.container.image=apache/spark:3.5.3 \
+     --conf spark.executor.instances=2 \
+     local:///opt/spark/examples/jars/spark-examples_2.12-3.5.3.jar 1000
+EOF
+
+    echo
+    read -p "Run this example? (y/N): " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        kubectl run spark-example --rm -i --tty --restart=Never \
+          --namespace="$NAMESPACE" \
+          --serviceaccount=spark \
+          --image=apache/spark:3.5.3 \
+          -- /opt/spark/bin/spark-submit \
+             --master k8s://https://kubernetes.default.svc \
+             --deploy-mode cluster \
+             --name SparkPiExample \
+             --class org.apache.spark.examples.SparkPi \
+             --conf spark.kubernetes.namespace="$NAMESPACE" \
+             --conf spark.kubernetes.authenticate.driver.serviceAccountName=spark \
+             --conf spark.kubernetes.container.image=apache/spark:3.5.3 \
+             --conf spark.executor.instances=2 \
+             local:///opt/spark/examples/jars/spark-examples_2.12-3.5.3.jar 1000
+    fi
 }
 
 # Usage information
 usage() {
-    echo "Usage: $0 {deploy|remove|restart|scale|status|logs|submit|ui|history-ui|help}"
+    echo "Usage: $0 {deploy|remove|status|mount|check-mount|logs|example|help}"
     echo
     echo "Commands:"
-    echo "  deploy           - Deploy Spark cluster to Kubernetes"
-    echo "  remove           - Remove Spark cluster from Kubernetes"
-    echo "  restart          - Restart Spark cluster"
-    echo "  scale <replicas> - Scale Spark workers (default: 2)"
-    echo "  status           - Show Spark cluster status and access URLs"
-    echo "  logs <component> - Show logs [master|worker|history] [lines] [follow]"
-    echo "  submit           - Submit Spark job <jar> <class> [args...]"
-    echo "  ui               - Open Spark Master UI in browser"
-    echo "  history-ui       - Open Spark History Server UI in browser"
+    echo "  deploy           - Deploy Spark on Kubernetes (RBAC + PVC)"
+    echo "  remove           - Remove Spark resources from Kubernetes"
+    echo "  status           - Show Spark on Kubernetes status"
+    echo "  mount [path]     - Setup minikube mount (required for PV)"
+    echo "  check-mount      - Check if minikube mount is active"
+    echo "  logs [pod] [n]   - Show logs from Spark pod (default: most recent driver)"
+    echo "  example          - Submit example SparkPi job"
     echo "  help             - Show this help message"
     echo
     echo "Environment Variables:"
-    echo "  NAMESPACE - Kubernetes namespace (default: default)"
+    echo "  NAMESPACE           - Kubernetes namespace (default: default)"
+    echo "  SPARK_PROJECT_PATH  - Project path to mount (default: current directory)"
     echo
     echo "Examples:"
+    echo "  # Deploy Spark on Kubernetes"
     echo "  $0 deploy"
-    echo "  $0 scale 3"
-    echo "  $0 logs master 100"
-    echo "  $0 logs history"
-    echo "  $0 submit /path/to/app.jar com.example.Main arg1 arg2"
-    echo "  $0 history-ui"
+    echo
+    echo "  # Setup mount for current project"
+    echo "  export SPARK_PROJECT_PATH=/Users/username/my-project"
+    echo "  $0 mount"
+    echo
+    echo "  # Check status"
+    echo "  $0 status"
+    echo
+    echo "  # Run example job"
+    echo "  $0 example"
+    echo
+    echo "  # View logs"
+    echo "  $0 logs"
+    echo "  $0 logs my-driver-pod 100"
+    echo
+    echo "Notes:"
+    echo "  - Update PV path in manifests/spark.yaml before deployment"
+    echo "  - Minikube mount must be active for PV access"
+    echo "  - Pods are created dynamically when jobs run (no persistent cluster)"
 }
 
 # Main command handler
@@ -248,27 +310,20 @@ main() {
         remove|stop|delete)
             remove
             ;;
-        restart)
-            restart
-            ;;
-        scale)
-            scale_workers "$2"
-            ;;
         status)
             show_status
             ;;
+        mount|setup-mount)
+            setup_mount "$2"
+            ;;
+        check-mount|mount-status)
+            check_mount
+            ;;
         logs)
-            show_logs "${2:-master}" "${3:-50}" "${4:-false}"
+            show_logs "${2}" "${3:-50}" "${4:-false}"
             ;;
-        submit)
-            shift
-            submit_job "$@"
-            ;;
-        ui|web)
-            open_ui
-            ;;
-        history-ui|history)
-            open_history_ui
+        example|submit-example)
+            submit_example
             ;;
         help|--help|-h)
             usage

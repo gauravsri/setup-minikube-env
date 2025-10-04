@@ -52,7 +52,26 @@ is_minikube_running() {
 ensure_minikube_running() {
     if ! is_minikube_running; then
         print_warning "Minikube is not running. Starting minikube..."
-        minikube start || {
+
+        # Use environment variables or defaults
+        local cpus="${MINIKUBE_CPUS:-4}"
+        local memory="${MINIKUBE_MEMORY:-8192}"
+        local disk="${MINIKUBE_DISK_SIZE:-40g}"
+        local driver="${MINIKUBE_DRIVER:-}"
+
+        print_info "Minikube configuration:"
+        echo "  CPUs: $cpus"
+        echo "  Memory: ${memory}MB"
+        echo "  Disk: $disk"
+
+        # Build minikube start command
+        local start_cmd="minikube start --cpus=$cpus --memory=$memory --disk-size=$disk"
+        if [ -n "$driver" ]; then
+            start_cmd="$start_cmd --driver=$driver"
+        fi
+
+        print_info "Starting: $start_cmd"
+        eval "$start_cmd" || {
             print_error "Failed to start minikube"
             return 1
         }
@@ -182,6 +201,37 @@ get_service_external_url() {
 # =============================================================================
 # DEPLOYMENT MANAGEMENT
 # =============================================================================
+
+# Resolve manifest file path with project-specific overrides
+# Usage: resolve_manifest_path <default_manifest_path> <service_name>
+# Returns: Path to manifest file (project-specific if exists, otherwise template default)
+resolve_manifest_path() {
+    local default_manifest="$1"
+    local service_name="$2"
+
+    # If PROJECT_MANIFESTS_DIR is set, check for project-specific manifest
+    if [[ -n "$PROJECT_MANIFESTS_DIR" && -n "$PROJECT_ROOT" ]]; then
+        local project_manifest_dir
+
+        if [[ "$PROJECT_MANIFESTS_DIR" =~ ^/ ]]; then
+            # Absolute path
+            project_manifest_dir="$PROJECT_MANIFESTS_DIR"
+        else
+            # Relative path - resolve from project's scripts directory (PROJECT_ROOT/scripts)
+            # This allows paths like "../k8s/manifests" to work correctly
+            project_manifest_dir="$(cd "$PROJECT_ROOT/scripts/$PROJECT_MANIFESTS_DIR" 2>/dev/null && pwd)"
+        fi
+
+        # Check if project-specific manifest exists
+        if [[ -n "$project_manifest_dir" && -f "$project_manifest_dir/${service_name}.yaml" ]]; then
+            echo "$project_manifest_dir/${service_name}.yaml"
+            return 0
+        fi
+    fi
+
+    # Fall back to default template manifest
+    echo "$default_manifest"
+}
 
 # Apply Kubernetes manifest
 apply_manifest() {
@@ -373,6 +423,6 @@ if [ "${BASH_SOURCE[0]}" != "${0}" ]; then
     export -f is_minikube_running ensure_minikube_running get_minikube_ip
     export -f create_namespace wait_for_deployment wait_for_statefulset resource_exists
     export -f get_pod_status get_service_url get_service_nodeport get_service_external_url
-    export -f apply_manifest delete_manifest create_pv show_logs
+    export -f resolve_manifest_path apply_manifest delete_manifest show_logs
     export -f check_service_health validate_tools cleanup_failed_pods port_forward
 fi

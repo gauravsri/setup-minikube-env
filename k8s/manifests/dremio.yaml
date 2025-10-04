@@ -56,16 +56,16 @@ spec:
         livenessProbe:
           httpGet:
             path: /
-            port: 9999
-          initialDelaySeconds: 300
+            port: 9047
+          initialDelaySeconds: 120
           periodSeconds: 30
           timeoutSeconds: 10
           failureThreshold: 5
         readinessProbe:
           httpGet:
             path: /
-            port: 9999
-          initialDelaySeconds: 180
+            port: 9047
+          initialDelaySeconds: 60
           periodSeconds: 10
           timeoutSeconds: 5
           failureThreshold: 10
@@ -84,17 +84,11 @@ metadata:
 spec:
   type: NodePort
   ports:
-  - port: 9999
-    targetPort: 9999
-    name: web
   - port: 9047
     targetPort: 9047
-    name: jdbc
+    name: web
   - port: 31010
     targetPort: 31010
-    name: fabric
-  - port: 45678
-    targetPort: 45678
-    name: conduit
+    name: client
   selector:
     app: dremio

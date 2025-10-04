@@ -71,6 +71,7 @@ init_project_wrapper() {
 export_project_config() {
     export NAMESPACE
     export PROJECT_NAME
+    export PROJECT_ROOT
     export TEMPLATE_FULL_PATH
 
     # Export all non-comment lines from .env

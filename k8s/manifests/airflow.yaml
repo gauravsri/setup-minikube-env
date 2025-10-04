@@ -82,6 +82,55 @@ spec:
     app: airflow-postgres
 
 ---
+# ServiceAccount for Airflow
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: airflow
+  labels:
+    app: airflow
+
+---
+# Role for Airflow to manage Spark pods
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: airflow-pod-manager
+  labels:
+    app: airflow
+rules:
+- apiGroups: [""]
+  resources: ["pods", "pods/log", "pods/exec"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+---
+# RoleBinding for Airflow ServiceAccount
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: airflow-pod-manager-binding
+  labels:
+    app: airflow
+subjects:
+- kind: ServiceAccount
+  name: airflow
+roleRef:
+  kind: Role
+  name: airflow-pod-manager
+  apiGroup: rbac.authorization.k8s.io
+
+---
+# ConfigMap for DAGs (placeholder - populate via kubectl create configmap)
+# To add DAGs: kubectl create configmap airflow-dags --from-file=path/to/dags -n <namespace> --dry-run=client -o yaml | kubectl apply -f -
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: airflow-dags
+  labels:
+    app: airflow
+data: {}
+
+---
 # Airflow Webserver
 apiVersion: apps/v1
 kind: Deployment
@@ -102,7 +151,20 @@ spec:
         app: airflow
         component: webserver
     spec:
+      serviceAccountName: airflow
       initContainers:
+      - name: copy-dags
+        image: busybox:latest
+        command:
+        - sh
+        - -c
+        - |
+          cp /configmap-dags/* /opt/airflow/dags/ 2>/dev/null || true
+        volumeMounts:
+        - name: configmap-dags
+          mountPath: /configmap-dags
+        - name: dags
+          mountPath: /opt/airflow/dags
       - name: init-db
         image: apache/airflow:2.7.0-python3.9
         command:
@@ -146,6 +208,9 @@ spec:
         ports:
         - containerPort: 8080
           name: http
+        volumeMounts:
+        - name: dags
+          mountPath: /opt/airflow/dags
         resources:
           requests:
             memory: "512Mi"
@@ -166,6 +231,12 @@ spec:
             port: 8080
           initialDelaySeconds: 30
           periodSeconds: 10
+      volumes:
+      - name: configmap-dags
+        configMap:
+          name: airflow-dags
+      - name: dags
+        emptyDir: {}
 
 ---
 # Airflow Scheduler
@@ -188,6 +259,20 @@ spec:
         app: airflow
         component: scheduler
     spec:
+      serviceAccountName: airflow
+      initContainers:
+      - name: copy-dags
+        image: busybox:latest
+        command:
+        - sh
+        - -c
+        - |
+          cp /configmap-dags/* /opt/airflow/dags/ 2>/dev/null || true
+        volumeMounts:
+        - name: configmap-dags
+          mountPath: /configmap-dags
+        - name: dags
+          mountPath: /opt/airflow/dags
       containers:
       - name: scheduler
         image: apache/airflow:2.7.0-python3.9
@@ -203,6 +288,9 @@ spec:
           value: "LocalExecutor"
         - name: AIRFLOW__CORE__LOAD_EXAMPLES
           value: "False"
+        volumeMounts:
+        - name: dags
+          mountPath: /opt/airflow/dags
         resources:
           requests:
             memory: "512Mi"
@@ -210,6 +298,12 @@ spec:
           limits:
             memory: "1Gi"
             cpu: "1000m"
+      volumes:
+      - name: configmap-dags
+        configMap:
+          name: airflow-dags
+      - name: dags
+        emptyDir: {}
 
 ---
 # Airflow Webserver Service

@@ -1,245 +1,145 @@
 ---
-# Spark Master Deployment
-apiVersion: apps/v1
-kind: Deployment
+# Spark on Kubernetes - RBAC Configuration
+# This replaces the standalone Spark cluster with dynamic pod-based execution
+# Pods are created on-demand via spark-submit with --master k8s://
+# No persistent Spark master/worker/history deployments needed
+
+# ServiceAccount for Spark driver and executor pods
+apiVersion: v1
+kind: ServiceAccount
 metadata:
-  name: spark-master
+  name: spark
   labels:
     app: spark
-    component: master
+
+---
+# Role with permissions for Spark on Kubernetes
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: spark-role
+  labels:
+    app: spark
+rules:
+- apiGroups: [""]
+  resources: ["pods", "services", "configmaps"]
+  verbs: ["create", "get", "list", "watch", "delete", "deletecollection", "patch", "update"]
+- apiGroups: [""]
+  resources: ["persistentvolumeclaims"]
+  verbs: ["get", "list"]
+
+---
+# RoleBinding to bind spark ServiceAccount to spark-role
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: spark-role-binding
+  labels:
+    app: spark
+subjects:
+- kind: ServiceAccount
+  name: spark
+roleRef:
+  kind: Role
+  name: spark-role
+  apiGroup: rbac.authorization.k8s.io
+
+---
+# PersistentVolume for project files (JAR access)
+# Uses hostPath - requires minikube mount to be active
+# IMPORTANT: Update 'path' to match your project directory
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: spark-project-pv
+  labels:
+    app: spark
+    type: local
 spec:
-  replicas: 1
+  capacity:
+    storage: 5Gi
+  accessModes:
+    - ReadWriteMany
+  hostPath:
+    path: /path/to/your/project  # UPDATE THIS: e.g., /Users/username/workspace/project
+    type: DirectoryOrCreate
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: standard
+
+---
+# PersistentVolumeClaim for project files
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: spark-project-pvc
+  labels:
+    app: spark
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 5Gi
+  storageClassName: standard
   selector:
     matchLabels:
       app: spark
-      component: master
-  template:
-    metadata:
-      labels:
-        app: spark
-        component: master
-    spec:
-      enableServiceLinks: false
-      containers:
-      - name: spark-master
-        image: apache/spark:3.5.3
-        command: ["/opt/spark/bin/spark-class"]
-        args: ["org.apache.spark.deploy.master.Master", "--host", "0.0.0.0", "--port", "7077", "--webui-port", "8080"]
-        env:
-        - name: SPARK_NO_DAEMONIZE
-          value: "true"
-        - name: SPARK_MASTER_OPTS
-          value: "-Dspark.eventLog.enabled=true -Dspark.eventLog.dir=s3a://spark-events/ -Dspark.hadoop.fs.s3a.endpoint=http://minio:9000 -Dspark.hadoop.fs.s3a.access.key=minioadmin -Dspark.hadoop.fs.s3a.secret.key=minioadmin -Dspark.hadoop.fs.s3a.path.style.access=true -Dspark.hadoop.fs.s3a.impl=org.apache.hadoop.fs.s3a.S3AFileSystem -Dspark.hadoop.fs.s3a.connection.ssl.enabled=false"
-        ports:
-        - containerPort: 8080
-          name: web
-        - containerPort: 7077
-          name: master
-        resources:
-          requests:
-            memory: "512Mi"
-            cpu: "250m"
-          limits:
-            memory: "1Gi"
-            cpu: "1000m"
-        livenessProbe:
-          httpGet:
-            path: /
-            port: 8080
-          initialDelaySeconds: 30
-          periodSeconds: 30
-        readinessProbe:
-          httpGet:
-            path: /
-            port: 8080
-          initialDelaySeconds: 20
-          periodSeconds: 10
+      type: local
 
 ---
-# Spark Master Service
-apiVersion: v1
-kind: Service
-metadata:
-  name: spark-master
-  labels:
-    app: spark
-    component: master
-spec:
-  type: NodePort
-  ports:
-  - port: 8080
-    targetPort: 8080
-    name: web
-  - port: 7077
-    targetPort: 7077
-    name: master
-  selector:
-    app: spark
-    component: master
-
----
-# Spark Worker Deployment
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: spark-worker
-  labels:
-    app: spark
-    component: worker
-spec:
-  replicas: 2
-  selector:
-    matchLabels:
-      app: spark
-      component: worker
-  template:
-    metadata:
-      labels:
-        app: spark
-        component: worker
-    spec:
-      enableServiceLinks: false
-      containers:
-      - name: spark-worker
-        image: apache/spark:3.5.3
-        command: ["/opt/spark/bin/spark-class"]
-        args: ["org.apache.spark.deploy.worker.Worker", "--webui-port", "8081", "--memory", "1G", "--cores", "1", "spark://spark-master:7077"]
-        env:
-        - name: SPARK_NO_DAEMONIZE
-          value: "true"
-        ports:
-        - containerPort: 8081
-          name: web
-        resources:
-          requests:
-            memory: "1Gi"
-            cpu: "500m"
-          limits:
-            memory: "2Gi"
-            cpu: "1000m"
-        livenessProbe:
-          httpGet:
-            path: /
-            port: 8081
-          initialDelaySeconds: 30
-          periodSeconds: 30
-        readinessProbe:
-          httpGet:
-            path: /
-            port: 8081
-          initialDelaySeconds: 20
-          periodSeconds: 10
-
----
-# Spark Worker Service
-apiVersion: v1
-kind: Service
-metadata:
-  name: spark-worker
-  labels:
-    app: spark
-    component: worker
-spec:
-  type: NodePort
-  ports:
-  - port: 8081
-    targetPort: 8081
-    name: web
-  selector:
-    app: spark
-    component: worker
-
----
-# Spark History Server Deployment
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: spark-history
-  labels:
-    app: spark
-    component: history
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: spark
-      component: history
-  template:
-    metadata:
-      labels:
-        app: spark
-        component: history
-    spec:
-      enableServiceLinks: false
-      initContainers:
-      - name: download-aws-jars
-        image: curlimages/curl:latest
-        command: ["/bin/sh", "-c"]
-        args:
-        - |
-          mkdir -p /opt/spark/jars
-          cd /opt/spark/jars
-          curl -O https://repo1.maven.org/maven2/org/apache/hadoop/hadoop-aws/3.3.4/hadoop-aws-3.3.4.jar
-          curl -O https://repo1.maven.org/maven2/com/amazonaws/aws-java-sdk-bundle/1.12.262/aws-java-sdk-bundle-1.12.262.jar
-        volumeMounts:
-        - name: spark-jars
-          mountPath: /opt/spark/jars
-      containers:
-      - name: spark-history
-        image: apache/spark:3.5.3
-        command: ["/opt/spark/bin/spark-class"]
-        args: ["org.apache.spark.deploy.history.HistoryServer"]
-        env:
-        - name: SPARK_NO_DAEMONIZE
-          value: "true"
-        - name: SPARK_DIST_CLASSPATH
-          value: "/opt/spark/jars-extra/*"
-        - name: SPARK_HISTORY_OPTS
-          value: "-Dspark.history.fs.logDirectory=s3a://spark-events/ -Dspark.hadoop.fs.s3a.endpoint=http://minio:9000 -Dspark.hadoop.fs.s3a.access.key=minioadmin -Dspark.hadoop.fs.s3a.secret.key=minioadmin -Dspark.hadoop.fs.s3a.path.style.access=true -Dspark.hadoop.fs.s3a.impl=org.apache.hadoop.fs.s3a.S3AFileSystem -Dspark.hadoop.fs.s3a.connection.ssl.enabled=false"
-        volumeMounts:
-        - name: spark-jars
-          mountPath: /opt/spark/jars-extra
-        ports:
-        - containerPort: 18080
-          name: web
-        resources:
-          requests:
-            memory: "512Mi"
-            cpu: "250m"
-          limits:
-            memory: "1Gi"
-            cpu: "500m"
-        livenessProbe:
-          httpGet:
-            path: /
-            port: 18080
-          initialDelaySeconds: 60
-          periodSeconds: 30
-        readinessProbe:
-          httpGet:
-            path: /
-            port: 18080
-          initialDelaySeconds: 30
-          periodSeconds: 10
-      volumes:
-      - name: spark-jars
-        emptyDir: {}
-
----
-# Spark History Server Service
-apiVersion: v1
-kind: Service
-metadata:
-  name: spark-history
-  labels:
-    app: spark
-    component: history
-spec:
-  type: NodePort
-  ports:
-  - port: 18080
-    targetPort: 18080
-    name: web
-  selector:
-    app: spark
-    component: history
+# USAGE INSTRUCTIONS
+#
+# Spark on Kubernetes runs jobs dynamically without persistent cluster.
+# Pods are created on-demand when you submit jobs via spark-submit.
+#
+# Basic spark-submit example:
+#
+# kubectl run spark-job --rm -i --tty --restart=Never \
+#   --namespace=<your-namespace> \
+#   --serviceaccount=spark \
+#   --image=apache/spark:3.5.3 \
+#   -- /opt/spark/bin/spark-submit \
+#      --master k8s://https://kubernetes.default.svc \
+#      --deploy-mode cluster \
+#      --name MySparkJob \
+#      --class com.example.MyJob \
+#      --conf spark.kubernetes.namespace=<your-namespace> \
+#      --conf spark.kubernetes.authenticate.driver.serviceAccountName=spark \
+#      --conf spark.kubernetes.container.image=apache/spark:3.5.3 \
+#      --conf spark.executor.instances=2 \
+#      --conf spark.executor.memory=1g \
+#      local:///project/target/my-app.jar
+#
+# Integration with Airflow:
+#
+# Use KubernetesPodOperator instead of SparkSubmitOperator:
+#
+# from airflow.providers.cncf.kubernetes.operators.pod import KubernetesPodOperator
+#
+# spark_task = KubernetesPodOperator(
+#     task_id='run_spark_job',
+#     name='spark-submitter',
+#     namespace='<your-namespace>',
+#     service_account_name='spark',
+#     image='apache/spark:3.5.3',
+#     cmds=['/bin/sh', '-c'],
+#     arguments=['spark-submit --master k8s://... local:///project/target/app.jar']
+# )
+#
+# Benefits over standalone Spark cluster:
+# - No persistent pods consuming resources (saves ~6Gi memory)
+# - Kubernetes-native pod lifecycle management
+# - Better integration with RBAC and namespaces
+# - Dynamic scaling based on workload
+# - Simpler deployment and maintenance
+#
+# Prerequisites:
+# - minikube mount for hostPath PV access (if using local files)
+# - Proper RBAC configuration (included above)
+# - Container image with your application JARs
+#
+# Monitoring:
+# - kubectl get pods -n <namespace> | grep spark  # View running jobs
+# - kubectl logs -n <namespace> <driver-pod> -f   # Follow driver logs
+# - kubectl describe pod -n <namespace> <pod>     # Pod details
+#
