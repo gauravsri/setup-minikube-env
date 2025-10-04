@@ -52,6 +52,28 @@ restart() {
     print_success "PostgreSQL restarted successfully"
 }
 
+# Health check for PostgreSQL connectivity
+health_check() {
+    local timeout=5
+    local result
+
+    result=$(kubectl run -n "$NAMESPACE" postgres-health-check --rm -i --restart=Never \
+        --image=postgres:15 --env="PGPASSWORD=postgres" --quiet \
+        --command -- timeout "$timeout" psql \
+        -h "postgres.${NAMESPACE}.svc.cluster.local" \
+        -U postgres -c "SELECT 1;" 2>&1)
+
+    local exit_code=$?
+
+    if [ $exit_code -eq 0 ]; then
+        echo "✅ Healthy"
+        return 0
+    else
+        echo "❌ Unhealthy"
+        return 1
+    fi
+}
+
 # Show PostgreSQL status
 show_status() {
     print_header "PostgreSQL Status"
@@ -76,6 +98,11 @@ show_status() {
     echo
     print_info "Persistent Volume:"
     kubectl get pvc postgres-pvc -n "$NAMESPACE" 2>/dev/null || echo "  No PVC found"
+
+    echo
+    print_info "Health Check:"
+    echo -n "  "
+    health_check
 
     echo
     print_info "Access Information:"

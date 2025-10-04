@@ -19,18 +19,11 @@ deploy() {
     ensure_minikube_running || return 1
     create_namespace "$NAMESPACE" || return 1
 
-    # Check if standalone postgres service is enabled
+    # Check if standalone postgres is running (could be from core infra or airflow)
     local use_standalone_postgres=false
-    if echo "${ENABLED_SERVICES:-}" | grep -q "postgres"; then
-        print_info "Using standalone PostgreSQL service"
+    if resource_exists statefulset "postgres" "$NAMESPACE" || resource_exists service "postgres" "$NAMESPACE"; then
+        print_info "Using standalone PostgreSQL service (postgres.${NAMESPACE}.svc.cluster.local)"
         use_standalone_postgres=true
-
-        # Verify standalone postgres is running
-        if ! resource_exists statefulset "postgres" "$NAMESPACE" && ! resource_exists deployment "postgres" "$NAMESPACE"; then
-            print_error "Standalone PostgreSQL not found. Please deploy postgres first:"
-            print_error "  ./k8s/scripts/postgres.sh deploy"
-            return 1
-        fi
     else
         print_info "Using embedded PostgreSQL (will be deployed with Airflow)"
     fi
@@ -92,6 +85,28 @@ restart() {
     print_success "Airflow restarted successfully"
 }
 
+# Health check for Airflow webserver
+health_check() {
+    local timeout=5
+    local result
+
+    # Check if webserver is accessible via health endpoint
+    result=$(kubectl run -n "$NAMESPACE" airflow-health-check --rm -i --restart=Never \
+        --image=curlimages/curl:latest --quiet \
+        --command -- timeout "$timeout" curl -f -s \
+        "http://airflow-webserver.${NAMESPACE}.svc.cluster.local:8080/health" 2>&1)
+
+    local exit_code=$?
+
+    if [ $exit_code -eq 0 ]; then
+        echo "✅ Healthy"
+        return 0
+    else
+        echo "❌ Unhealthy"
+        return 1
+    fi
+}
+
 # Show Airflow status
 show_status() {
     print_header "Apache Airflow Status"
@@ -103,8 +118,7 @@ show_status() {
 
     echo
     print_info "PostgreSQL:"
-    kubectl get deployment "$POSTGRES_DEPLOYMENT" -n "$NAMESPACE"
-    get_pod_status "app=postgres" "$NAMESPACE"
+    kubectl get deployment "$POSTGRES_DEPLOYMENT" -n "$NAMESPACE" 2>/dev/null || get_pod_status "app=postgres" "$NAMESPACE"
 
     echo
     print_info "Airflow Webserver:"
@@ -115,6 +129,11 @@ show_status() {
     print_info "Airflow Scheduler:"
     kubectl get deployment "$SCHEDULER_DEPLOYMENT" -n "$NAMESPACE"
     get_pod_status "app=airflow,component=scheduler" "$NAMESPACE"
+
+    echo
+    print_info "Health Check:"
+    echo -n "  "
+    health_check
 
     echo
     print_info "Services:"

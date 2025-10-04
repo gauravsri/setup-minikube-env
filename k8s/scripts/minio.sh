@@ -6,7 +6,7 @@ source "$SCRIPT_DIR/common.sh"
 
 # Configuration
 SERVICE_NAME="minio"
-MANIFEST_FILE="$SCRIPT_DIR/../manifests/minio.yaml"
+DEFAULT_MANIFEST_FILE="$SCRIPT_DIR/../manifests/minio.yaml"
 NAMESPACE="${NAMESPACE:-default}"
 DEPLOYMENT_NAME="minio"
 
@@ -16,6 +16,9 @@ deploy() {
 
     ensure_minikube_running || return 1
     create_namespace "$NAMESPACE" || return 1
+
+    # Resolve manifest path with project-specific override
+    MANIFEST_FILE=$(resolve_manifest_path "$DEFAULT_MANIFEST_FILE" "$SERVICE_NAME")
 
     apply_manifest "$MANIFEST_FILE" "$NAMESPACE" || return 1
 
@@ -32,6 +35,9 @@ deploy() {
 # Remove MinIO
 remove() {
     print_header "Removing MinIO"
+
+    # Resolve manifest path with project-specific override
+    MANIFEST_FILE=$(resolve_manifest_path "$DEFAULT_MANIFEST_FILE" "$SERVICE_NAME")
 
     delete_manifest "$MANIFEST_FILE" "$NAMESPACE"
 
@@ -50,6 +56,27 @@ restart() {
     wait_for_deployment "$DEPLOYMENT_NAME" "$NAMESPACE" 120
 
     print_success "MinIO restarted successfully"
+}
+
+# Health check for MinIO connectivity
+health_check() {
+    local timeout=5
+    local result
+
+    result=$(kubectl run -n "$NAMESPACE" minio-health-check --rm -i --restart=Never \
+        --image=minio/mc --quiet \
+        --command -- timeout "$timeout" mc alias set healthcheck \
+        "http://minio.${NAMESPACE}.svc.cluster.local:9000" minioadmin minioadmin 2>&1)
+
+    local exit_code=$?
+
+    if [ $exit_code -eq 0 ]; then
+        echo "✅ Healthy"
+        return 0
+    else
+        echo "❌ Unhealthy"
+        return 1
+    fi
 }
 
 # Show MinIO status
@@ -72,6 +99,11 @@ show_status() {
     echo
     print_info "Service:"
     kubectl get service "$SERVICE_NAME" -n "$NAMESPACE"
+
+    echo
+    print_info "Health Check:"
+    echo -n "  "
+    health_check
 
     echo
     print_info "Access URLs:"
