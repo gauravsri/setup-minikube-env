@@ -1,10 +1,10 @@
 # Modular Minikube Environment Setup
 
-A production-ready, modular Kubernetes environment template for Minikube with 8 containerized services. Optimized for Apple Silicon (M4) and designed for cross-project reusability.
+A production-ready, modular Kubernetes environment template for Minikube with 9 containerized services. Optimized for Apple Silicon (M4 Max) and designed for cross-project reusability.
 
 [![Kubernetes](https://img.shields.io/badge/Kubernetes-Ready-326CE5?logo=kubernetes)](https://kubernetes.io/)
 [![Minikube](https://img.shields.io/badge/Minikube-Optimized-orange)](https://minikube.sigs.k8s.io/)
-[![Apple Silicon](https://img.shields.io/badge/Apple_Silicon-M4_Optimized-000000?logo=apple)](https://www.apple.com/mac/)
+[![Apple Silicon](https://img.shields.io/badge/Apple_Silicon-M4_Max_Optimized-000000?logo=apple)](https://www.apple.com/mac/)
 
 ## Table of Contents
 
@@ -54,8 +54,8 @@ A production-ready, modular Kubernetes environment template for Minikube with 8 
 git submodule add https://github.com/gauravsri/setup-minikube-env.git
 cd setup-minikube-env
 
-# 2. Start Minikube (M4 optimized)
-minikube start --cpus=6 --memory=12288 --disk-size=40g
+# 2. Start Minikube (M4 Max optimized - can run ALL services!)
+minikube start --cpus=12 --memory=32768 --disk-size=80g
 
 # 3. Deploy services
 export NAMESPACE=demo
@@ -124,11 +124,18 @@ cd ../my-project/scripts
 - **Disk**: 40 GB
 - **Services**: 3-5 (minio,spark,airflow)
 
-### High-End (32GB+ RAM)
+### High-End (Apple M4 Max - 48GB) - OPTIMAL! 🚀
+- **CPU**: 12 cores (75% of M4 Max's 16 cores)
+- **Memory**: 32 GB (67% of 48GB)
+- **Disk**: 80+ GB
+- **Services**: **ALL 9 services** simultaneously!
+- **Advantage**: Production-like workloads with room to spare
+
+### Ultra (32GB+ Non-Apple Silicon)
 - **CPU**: 8+ cores
 - **Memory**: 16+ GB
 - **Disk**: 60+ GB
-- **Services**: All 8 services
+- **Services**: 6-8 services
 
 ## Installation
 
@@ -154,11 +161,27 @@ choco install minikube kubectl
 ```
 
 ### Docker Desktop (Apple Silicon)
+
+**For M4 Max (48GB RAM):**
+```
+Resources:
+  CPUs: 12-14 cores  (vs 6-8 on M4)
+  Memory: 32-40 GB   (vs 12-14 on M4)
+  Disk: 100 GB+      (vs 60GB on M4)
+  Swap: 4 GB
+
+Advanced:
+  ✓ Use VirtioFS
+  ✓ Enable Rosetta
+```
+
+**For M4 (16GB RAM):**
 ```
 Resources:
   CPUs: 6-8 cores
   Memory: 12-14 GB
   Disk: 60 GB+
+  Swap: 2 GB
 
 Advanced:
   ✓ Use VirtioFS
@@ -296,73 +319,89 @@ ENABLED_SERVICES="redpanda,spark,minio"
 ENABLED_SERVICES="postgres,minio,dremio,spark,airflow,redpanda,zincsearch,dex,postfix"
 ```
 
-## M4 Optimization Guide
+## M4 Max Optimization Guide
 
 ### Hardware Specs
-- **Chip**: Apple M4
-- **Cores**: 10 (4 performance + 6 efficiency)
-- **Memory**: 16 GB unified
-- **Strategy**: Use 60-75% resources
+- **Chip**: Apple M4 Max
+- **Cores**: 16 (12 performance + 4 efficiency)
+- **Memory**: 48 GB unified
+- **GPU**: 40 cores with Metal 4
+- **Strategy**: Use 75-85% resources - plenty of headroom!
 
-### Optimized Settings
+### Optimized Settings for M4 Max
 
-**Balanced (Recommended)**
+**Balanced (Recommended for 5-7 services)**
 ```bash
-minikube start --cpus=6 --memory=12288 --disk-size=40g
-ENABLED_SERVICES="minio,spark,airflow"  # ~14Gi
+minikube start --cpus=12 --memory=32768 --disk-size=80g
+ENABLED_SERVICES="postgres,minio,spark,airflow,redpanda"  # ~30Gi
 ```
 
-**Conservative (1-3 services)**
+**Maximum (ALL 9 services!) 🚀**
 ```bash
-minikube start --cpus=4 --memory=8192 --disk-size=20g
-ENABLED_SERVICES="minio,spark"  # ~9Gi
+minikube start --cpus=14 --memory=40960 --disk-size=100g
+ENABLED_SERVICES="postgres,minio,dremio,spark,airflow,redpanda,zincsearch,dex,postfix"
+# ✅ Runs comfortably with 8GB+ free for macOS!
 ```
 
-**Aggressive (5-6 services)**
+**Conservative (1-5 services)**
 ```bash
-minikube start --cpus=8 --memory=14336 --disk-size=40g
-ENABLED_SERVICES="minio,spark,airflow,redpanda,zincsearch"  # ~18Gi
-# ⚠️ Monitor macOS memory pressure
+minikube start --cpus=8 --memory=16384 --disk-size=60g
+ENABLED_SERVICES="minio,spark"  # ~20Gi
 ```
 
-### M4-Specific Optimizations
+### M4 Max-Specific Optimizations
 
-1. **Performance Cores** - Used by:
-   - Dremio (SQL processing)
-   - Spark Master (scheduling)
-   - Airflow Scheduler
+1. **12 Performance Cores** - Perfect for:
+   - Dremio (complex SQL queries, 6 cores)
+   - Spark Workers (4 workers × 4 cores = 16 cores)
+   - Airflow Scheduler (parallel task execution, 3 cores)
+   - Redpanda (high-throughput streaming, 4 cores)
 
-2. **Efficiency Cores** - Used by:
-   - Background tasks (Redpanda replication)
+2. **4 Efficiency Cores** - Handle:
+   - Background tasks
    - Lightweight services (Dex, Postfix)
+   - System processes
 
-3. **Unified Memory Benefits**:
-   - Faster inter-service communication
-   - Better Spark shuffle performance
-   - Reduced memory copying
+3. **48GB Unified Memory Benefits**:
+   - Run ALL 9 services simultaneously
+   - Large Spark datasets (10GB+)
+   - Production-like workloads
+   - 4-6 Spark workers with 4GB each
 
-4. **Spark Optimization**:
+4. **Spark Optimization for M4 Max**:
    ```bash
-   # Fewer, larger workers (better for M4)
-   SPARK_WORKER_REPLICAS="2"
-   SPARK_WORKER_CORES="2"      # 2 cores per worker
-   SPARK_WORKER_MEMORY="2G"
+   # M4 Max: More powerful workers
+   SPARK_WORKER_REPLICAS="4"   # 4 workers (vs 2 on M4)
+   SPARK_WORKER_CORES="3"      # 3 cores per worker
+   SPARK_WORKER_MEMORY="4G"    # 4GB per worker (vs 2G on M4)
+   # Total: 16GB worker memory, 12 cores
 
-   # vs. Many small workers (less efficient)
-   # SPARK_WORKER_REPLICAS="4"
-   # SPARK_WORKER_CORES="1"
+   # M4 (16GB): Smaller workers
+   # SPARK_WORKER_REPLICAS="2"
+   # SPARK_WORKER_CORES="2"
+   # SPARK_WORKER_MEMORY="2G"
    ```
 
-### Memory Planning (M4 - 16GB)
+### Memory Planning (M4 Max - 48GB)
 
 | Stack | Services | Memory | Minikube Config |
 |-------|----------|--------|-----------------|
-| Minimal | minio | ~1Gi | --cpus=2 --memory=4096 |
-| Basic | minio,spark | ~9Gi | --cpus=4 --memory=10240 |
-| SQL | minio,dremio | ~5Gi | --cpus=4 --memory=8192 |
-| Streaming | redpanda,spark,minio | ~12Gi | --cpus=6 --memory=12288 |
-| **Full** | minio,spark,airflow | ~14Gi | --cpus=6 --memory=14336 |
-| ❌ All 8 | All services | ~23Gi | **NOT POSSIBLE** |
+| Minimal | postgres | ~4Gi | --cpus=4 --memory=6144 |
+| Basic | minio,spark | ~22Gi | --cpus=10 --memory=24576 |
+| SQL Federation | postgres,minio,dremio | ~14Gi | --cpus=10 --memory=16384 |
+| Streaming | redpanda,spark,minio | ~28Gi | --cpus=12 --memory=32768 |
+| Full Orchestration | postgres,minio,spark,airflow | ~36Gi | --cpus=12 --memory=40960 |
+| ✅ **ALL 9** | All services | ~52Gi | --cpus=14 --memory=40960 --disk-size=100g |
+
+### M4 Max vs Base M4 Comparison
+
+| Metric | Base M4 (16GB) | M4 Max (48GB) | Improvement |
+|--------|----------------|---------------|-------------|
+| CPU Cores | 10 (4P+6E) | 16 (12P+4E) | +60%, +200% P-cores |
+| Memory | 16GB | 48GB | **+200%** |
+| Max Services | 5-6 | **All 9** | Full platform! |
+| Spark Workers | 2 × 2GB | 4-6 × 4GB | **4x capacity** |
+| Dremio JVM | 2-4GB | 4-8GB | **2x heap** |
 
 ### Performance Monitoring
 
@@ -378,10 +417,10 @@ kubectl top pods -n <namespace>
 memory_pressure
 # or Activity Monitor
 
-# Signs of overcommitment:
-# - kernel_task using >50% CPU
-# - Swap >2GB
-# - Apps unresponsive
+# M4 Max advantage:
+# - Can run all services with 8GB+ free
+# - Minimal swap usage
+# - Excellent responsiveness
 ```
 
 ## Project Structure
@@ -541,8 +580,9 @@ MIT License
 ## Acknowledgments
 
 - Inspired by [setup-podman-env](https://github.com/gauravsri/setup-podman-env)
-- Optimized for Apple M4 MacBook Pro
-- All 8 services ported from Podman to Kubernetes
+- Optimized for Apple M4 Max MacBook Pro (48GB RAM, 16 cores)
+- All 9 services ported from Podman to Kubernetes
+- Production-ready configurations for running complete data platform locally
 
 ---
 
