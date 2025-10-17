@@ -48,15 +48,15 @@ A production-ready, modular Kubernetes environment template for Minikube with 9 
 
 ## Quick Start
 
-### 5-Minute Setup
+### 5-Minute Setup (Using Startup Script)
 
 ```bash
 # 1. Clone or add as submodule
 git submodule add https://github.com/gauravsri/setup-minikube-env.git
 cd setup-minikube-env
 
-# 2. Start Minikube (M4 Max optimized with containerd runtime)
-minikube start --cpus=10 --memory=20480 --disk-size=100g --driver=vfkit --container-runtime=containerd
+# 2. Start Minikube with optimized settings + metrics-server
+./start-minikube.sh
 
 # 3. Deploy services
 export NAMESPACE=demo
@@ -64,8 +64,18 @@ export NAMESPACE=demo
 ./k8s/scripts/spark.sh deploy
 
 # 4. Check status
-./k8s/scripts/minio.sh status
+./status-minikube.sh
 minikube service minio -n demo --url
+```
+
+### Manual Setup (Without Script)
+
+```bash
+# Start Minikube manually (M4 Max optimized with containerd runtime)
+minikube start --cpus=10 --memory=20480 --disk-size=100g --driver=vfkit --container-runtime=containerd
+
+# Enable metrics-server
+minikube addons enable metrics-server
 ```
 
 **New to Minikube?** See our [Minikube Tutorial for Beginners](MINIKUBE_TUTORIAL.md)
@@ -176,6 +186,24 @@ choco install minikube kubectl
 | **Windows** | `hyperv` or `docker` | Hyper-V for best performance |
 
 ## Usage
+
+### Cluster Management
+
+```bash
+# Start Minikube cluster (M4 Max optimized + metrics-server)
+./start-minikube.sh
+
+# Check cluster status and resource usage
+./status-minikube.sh
+
+# Stop cluster (preserves state)
+./stop-minikube.sh
+
+# Or use minikube commands directly
+minikube status
+minikube stop
+minikube delete
+```
 
 ### Project-Level Commands
 
@@ -421,11 +449,16 @@ memory_pressure
 
 ```
 setup-minikube-env/
-├── README.md                      # This file
+├── README.md                      # Main documentation
+├── MINIKUBE_TUTORIAL.md           # Beginner's guide
+├── start-minikube.sh              # Start cluster with optimal settings
+├── stop-minikube.sh               # Stop cluster (preserves state)
+├── status-minikube.sh             # Show cluster status & resources
 ├── project-wrapper.sh             # Project framework
 ├── setup-env.sh.example           # Example setup script
 └── k8s/
     ├── manifests/                 # Kubernetes YAML
+    │   ├── postgres.yaml
     │   ├── minio.yaml
     │   ├── dremio.yaml
     │   ├── spark.yaml
@@ -437,6 +470,7 @@ setup-minikube-env/
     └── scripts/                   # Service management
         ├── .env.example           # Configuration template
         ├── common.sh              # Shared utilities
+        ├── postgres.sh
         ├── minio.sh
         ├── dremio.sh
         ├── spark.sh
