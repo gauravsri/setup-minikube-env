@@ -1,6 +1,6 @@
 # Modular Minikube Environment Setup
 
-A production-ready, modular Kubernetes environment template for Minikube with 9 containerized services. Optimized for Apple Silicon (M4 Max) and designed for cross-project reusability.
+A production-ready, modular Kubernetes environment template for Minikube with 10 containerized services. Optimized for Apple Silicon (M4 Max) and designed for cross-project reusability.
 
 [![Kubernetes](https://img.shields.io/badge/Kubernetes-Ready-326CE5?logo=kubernetes)](https://kubernetes.io/)
 [![Minikube](https://img.shields.io/badge/Minikube-Optimized-orange)](https://minikube.sigs.k8s.io/)
@@ -28,13 +28,13 @@ A production-ready, modular Kubernetes environment template for Minikube with 9 
 - **Flexible service selection**: Choose services via `ENABLED_SERVICES`
 - **Git submodule ready**: Version-controlled templates
 
-### 🐳 **9 Production-Ready Services**
+### 🐳 **10 Production-Ready Services**
 - **Database**: PostgreSQL (relational database)
 - **Data Storage**: MinIO (S3), Dremio (SQL federation)
 - **Processing**: Apache Spark (distributed computing)
 - **Orchestration**: Apache Airflow (workflow management)
 - **Streaming**: Redpanda (Kafka-compatible)
-- **Search**: ZincSearch (full-text search)
+- **Search**: Elasticsearch (search & analytics), ZincSearch (lightweight search)
 - **Auth**: Dex (OIDC provider)
 - **Email**: Postfix (SMTP relay)
 
@@ -102,7 +102,8 @@ cd ../my-project/scripts
 | **Spark** | Spark on Kubernetes (RBAC + dynamic pods) ⭐ | ~0Gi idle | Dynamic |
 | **Airflow** | Workflow orchestration | ~5Gi | 8080 |
 | **Redpanda** | Kafka streaming | ~3Gi | 9092, 9644 |
-| **ZincSearch** | Search engine | ~1Gi | 4080 |
+| **Elasticsearch** | Search & analytics engine | ~4Gi | 9200, 9300 |
+| **ZincSearch** | Lightweight search | ~1Gi | 4080 |
 | **Dex** | OIDC authentication | ~256Mi | 5556 |
 | **Postfix** | Email relay | ~256Mi | 25 |
 
@@ -118,6 +119,7 @@ cd ../my-project/scripts
 ./k8s/scripts/airflow.sh {deploy|remove|status|cli|ui}
 ./k8s/scripts/dremio.sh {deploy|remove|status|ui}
 ./k8s/scripts/redpanda.sh {deploy|remove|status|topic|rpk}
+./k8s/scripts/elasticsearch.sh {deploy|remove|status|index|search|health|stats}
 ./k8s/scripts/zincsearch.sh {deploy|remove|status|index|search}
 ./k8s/scripts/dex.sh {deploy|remove|status|test}
 ./k8s/scripts/postfix.sh {deploy|remove|status|test|queue}
@@ -148,7 +150,7 @@ cd ../my-project/scripts
 - **CPU**: 8+ cores
 - **Memory**: 16+ GB
 - **Disk**: 60+ GB
-- **Services**: 6-8 services
+- **Services**: 6-10 services
 
 ## Installation
 
@@ -281,6 +283,19 @@ kubectl logs -n your-namespace <driver-pod-name> -f
 ./k8s/scripts/redpanda.sh consume my-topic
 ```
 
+**Elasticsearch (Search & Analytics)**
+```bash
+./k8s/scripts/elasticsearch.sh deploy
+./k8s/scripts/elasticsearch.sh health              # Check cluster health
+./k8s/scripts/elasticsearch.sh index create my-index
+./k8s/scripts/elasticsearch.sh index doc my-index '{"message":"hello world"}'
+./k8s/scripts/elasticsearch.sh search my-index hello
+./k8s/scripts/elasticsearch.sh stats               # Cluster statistics
+
+# Access: No authentication (dev mode)
+# REST API available at http://<minikube-ip>:<node-port>
+```
+
 ## Configuration
 
 ### Environment Variables (.env)
@@ -290,7 +305,7 @@ kubectl logs -n your-namespace <driver-pod-name> -f
 PROJECT_NAME="my-project"
 NAMESPACE="${PROJECT_NAME}"
 
-# Service Selection (8 available)
+# Service Selection (10 available)
 ENABLED_SERVICES="minio,spark,airflow"
 
 # Minikube (M4 Max Optimized - Current Setup)
@@ -323,6 +338,9 @@ ENABLED_SERVICES="postgres,minio"
 # Basic Data Stack (~2Gi - Spark on Kubernetes)
 ENABLED_SERVICES="minio,spark"
 
+# Search & Analytics (~6Gi)
+ENABLED_SERVICES="postgres,elasticsearch"
+
 # SQL Federation (7Gi)
 ENABLED_SERVICES="postgres,minio,dremio"
 
@@ -335,8 +353,8 @@ ENABLED_SERVICES="postgres,minio,spark,airflow"
 # Streaming Platform (~7Gi - Spark on Kubernetes)
 ENABLED_SERVICES="redpanda,spark,minio"
 
-# All 9 Services (~18Gi with Spark on Kubernetes) - Works on M4 16GB! ⭐
-ENABLED_SERVICES="postgres,minio,dremio,spark,airflow,redpanda,zincsearch,dex,postfix"
+# All 10 Services (~22Gi with Spark on Kubernetes) - Best for M4 Max! ⭐
+ENABLED_SERVICES="postgres,minio,dremio,spark,airflow,redpanda,elasticsearch,zincsearch,dex,postfix"
 ```
 
 ## M4 Max Optimization Guide
@@ -357,10 +375,10 @@ ENABLED_SERVICES="postgres,minio,spark,airflow,dremio"  # ~18-20Gi
 # ✅ Leaves 28GB RAM and 6 cores free for macOS - excellent performance!
 ```
 
-**Maximum (ALL 9 services!) 🚀**
+**Maximum (ALL 10 services!) 🚀**
 ```bash
 minikube start --cpus=12 --memory=32768 --disk-size=100g --driver=vfkit --container-runtime=containerd
-ENABLED_SERVICES="postgres,minio,dremio,spark,airflow,redpanda,zincsearch,dex,postfix"
+ENABLED_SERVICES="postgres,minio,dremio,spark,airflow,redpanda,elasticsearch,zincsearch,dex,postfix"
 # ✅ Runs comfortably with 16GB+ free for macOS!
 ```
 
@@ -384,7 +402,7 @@ ENABLED_SERVICES="minio,spark"  # ~6-8Gi
    - System processes
 
 3. **48GB Unified Memory Benefits**:
-   - Run ALL 9 services simultaneously
+   - Run ALL 10 services simultaneously
    - Large Spark datasets (10GB+)
    - Production-like workloads
    - 4-6 Spark workers with 4GB each
@@ -409,11 +427,12 @@ ENABLED_SERVICES="minio,spark"  # ~6-8Gi
 |-------|----------|--------|-----------------|
 | Minimal | postgres | ~4Gi | --cpus=4 --memory=6144 |
 | Basic | minio,spark | ~8Gi | --cpus=6 --memory=12288 |
+| Search & Analytics | postgres,elasticsearch | ~6Gi | --cpus=6 --memory=8192 |
 | SQL Federation | postgres,minio,dremio | ~14Gi | --cpus=8 --memory=16384 |
 | Streaming | redpanda,spark,minio | ~12Gi | --cpus=8 --memory=16384 |
 | ⭐ **Recommended** | postgres,minio,spark,airflow,dremio | ~18-20Gi | --cpus=10 --memory=20480 --disk-size=100g |
 | Full Orchestration | postgres,minio,spark,airflow,redpanda | ~24Gi | --cpus=12 --memory=28672 |
-| ✅ **ALL 9** | All services | ~28Gi | --cpus=12 --memory=32768 --disk-size=100g |
+| ✅ **ALL 10** | All services | ~32Gi | --cpus=12 --memory=32768 --disk-size=100g |
 
 ### M4 Max vs Base M4 Comparison
 
@@ -421,7 +440,7 @@ ENABLED_SERVICES="minio,spark"  # ~6-8Gi
 |--------|----------------|---------------|-------------|
 | CPU Cores | 10 (4P+6E) | 16 (12P+4E) | +60%, +200% P-cores |
 | Memory | 16GB | 48GB | **+200%** |
-| Max Services | 5-6 | **All 9** | Full platform! |
+| Max Services | 5-6 | **All 10** | Full platform! |
 | Spark Workers | 2 × 2GB | 4-6 × 4GB | **4x capacity** |
 | Dremio JVM | 2-4GB | 4-8GB | **2x heap** |
 
@@ -464,6 +483,7 @@ setup-minikube-env/
     │   ├── spark.yaml
     │   ├── airflow.yaml
     │   ├── redpanda.yaml
+    │   ├── elasticsearch.yaml
     │   ├── zincsearch.yaml
     │   ├── dex.yaml
     │   └── postfix.yaml
@@ -476,6 +496,7 @@ setup-minikube-env/
         ├── spark.sh
         ├── airflow.sh
         ├── redpanda.sh
+        ├── elasticsearch.sh
         ├── zincsearch.sh
         ├── dex.sh
         └── postfix.sh
@@ -612,7 +633,7 @@ MIT License
 
 - Inspired by [setup-podman-env](https://github.com/gauravsri/setup-podman-env)
 - Optimized for Apple M4 Max MacBook Pro (48GB RAM, 16 cores)
-- All 9 services ported from Podman to Kubernetes
+- All 10 services ported from Podman to Kubernetes
 - Production-ready configurations for running complete data platform locally
 
 ---
