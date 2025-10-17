@@ -10,6 +10,7 @@ A production-ready, modular Kubernetes environment template for Minikube with 9 
 
 - [Features](#features)
 - [Quick Start](#quick-start)
+- [Minikube Tutorial for Beginners](MINIKUBE_TUTORIAL.md) 📚
 - [Available Services](#available-services)
 - [Hardware Requirements](#hardware-requirements)
 - [Installation](#installation)
@@ -54,8 +55,8 @@ A production-ready, modular Kubernetes environment template for Minikube with 9 
 git submodule add https://github.com/gauravsri/setup-minikube-env.git
 cd setup-minikube-env
 
-# 2. Start Minikube (M4 Max optimized - can run ALL services!)
-minikube start --cpus=12 --memory=32768 --disk-size=80g
+# 2. Start Minikube (M4 Max optimized with containerd runtime)
+minikube start --cpus=10 --memory=20480 --disk-size=100g --driver=vfkit --container-runtime=containerd
 
 # 3. Deploy services
 export NAMESPACE=demo
@@ -66,6 +67,8 @@ export NAMESPACE=demo
 ./k8s/scripts/minio.sh status
 minikube service minio -n demo --url
 ```
+
+**New to Minikube?** See our [Minikube Tutorial for Beginners](MINIKUBE_TUTORIAL.md)
 
 ### Generate Project Setup
 
@@ -125,11 +128,11 @@ cd ../my-project/scripts
 - **Services**: 3-5 (minio,spark,airflow)
 
 ### High-End (Apple M4 Max - 48GB) - OPTIMAL! 🚀
-- **CPU**: 12 cores (75% of M4 Max's 16 cores)
-- **Memory**: 32 GB (67% of 48GB)
-- **Disk**: 80+ GB
-- **Services**: **ALL 9 services** simultaneously!
-- **Advantage**: Production-like workloads with room to spare
+- **CPU**: 10 cores (62.5% of M4 Max's 16 cores)
+- **Memory**: 20 GB (42% of 48GB)
+- **Disk**: 100 GB
+- **Services**: **5-7 services** comfortably!
+- **Advantage**: Production-like workloads with excellent macOS performance (28GB+ free RAM)
 
 ### Ultra (32GB+ Non-Apple Silicon)
 - **CPU**: 8+ cores
@@ -141,9 +144,12 @@ cd ../my-project/scripts
 
 ### Prerequisites
 
-**macOS (M4 Optimized)**
+**macOS (M-series - Recommended)**
 ```bash
 brew install minikube kubectl
+
+# vfkit driver is included with Minikube 1.37+
+# Uses Apple's native Virtualization.framework (no Docker Desktop needed!)
 ```
 
 **Linux**
@@ -160,33 +166,14 @@ sudo install kubectl /usr/local/bin/kubectl
 choco install minikube kubectl
 ```
 
-### Docker Desktop (Apple Silicon)
+### Recommended Drivers by Platform
 
-**For M4 Max (48GB RAM):**
-```
-Resources:
-  CPUs: 12-14 cores  (vs 6-8 on M4)
-  Memory: 32-40 GB   (vs 12-14 on M4)
-  Disk: 100 GB+      (vs 60GB on M4)
-  Swap: 4 GB
-
-Advanced:
-  ✓ Use VirtioFS
-  ✓ Enable Rosetta
-```
-
-**For M4 (16GB RAM):**
-```
-Resources:
-  CPUs: 6-8 cores
-  Memory: 12-14 GB
-  Disk: 60 GB+
-  Swap: 2 GB
-
-Advanced:
-  ✓ Use VirtioFS
-  ✓ Enable Rosetta
-```
+| Platform | Driver | Notes |
+|----------|--------|-------|
+| **macOS (M-series)** | `vfkit` | Native virtualization, no Docker Desktop needed |
+| **macOS (Intel)** | `hyperkit` or `docker` | HyperKit recommended |
+| **Linux** | `docker` or `kvm2` | Docker most common |
+| **Windows** | `hyperv` or `docker` | Hyper-V for best performance |
 
 ## Usage
 
@@ -278,10 +265,15 @@ NAMESPACE="${PROJECT_NAME}"
 # Service Selection (8 available)
 ENABLED_SERVICES="minio,spark,airflow"
 
-# Minikube (M4 Optimized)
-MINIKUBE_CPUS="6"           # Use 6 of 10 M4 cores
-MINIKUBE_MEMORY="12288"     # 12GB (leave 4GB for macOS)
-MINIKUBE_DISK_SIZE="40g"
+# Minikube (M4 Max Optimized - Current Setup)
+MINIKUBE_CPUS="10"          # Use 10 of 16 M4 Max cores (62.5%)
+MINIKUBE_MEMORY="20480"     # 20GB (leaves 28GB for macOS)
+MINIKUBE_DISK_SIZE="100g"   # 100GB disk
+
+# For base M4 (16GB RAM)
+# MINIKUBE_CPUS="6"
+# MINIKUBE_MEMORY="12288"
+# MINIKUBE_DISK_SIZE="40g"
 
 # Service Resources (examples)
 MINIO_STORAGE_SIZE="10Gi"
@@ -330,23 +322,24 @@ ENABLED_SERVICES="postgres,minio,dremio,spark,airflow,redpanda,zincsearch,dex,po
 
 ### Optimized Settings for M4 Max
 
-**Balanced (Recommended for 5-7 services)**
+**Recommended (5-7 services) - Current Setup! ⭐**
 ```bash
-minikube start --cpus=12 --memory=32768 --disk-size=80g
-ENABLED_SERVICES="postgres,minio,spark,airflow,redpanda"  # ~30Gi
+minikube start --cpus=10 --memory=20480 --disk-size=100g --driver=vfkit --container-runtime=containerd
+ENABLED_SERVICES="postgres,minio,spark,airflow,dremio"  # ~18-20Gi
+# ✅ Leaves 28GB RAM and 6 cores free for macOS - excellent performance!
 ```
 
 **Maximum (ALL 9 services!) 🚀**
 ```bash
-minikube start --cpus=14 --memory=40960 --disk-size=100g
+minikube start --cpus=12 --memory=32768 --disk-size=100g --driver=vfkit --container-runtime=containerd
 ENABLED_SERVICES="postgres,minio,dremio,spark,airflow,redpanda,zincsearch,dex,postfix"
-# ✅ Runs comfortably with 8GB+ free for macOS!
+# ✅ Runs comfortably with 16GB+ free for macOS!
 ```
 
-**Conservative (1-5 services)**
+**Conservative (1-4 services)**
 ```bash
-minikube start --cpus=8 --memory=16384 --disk-size=60g
-ENABLED_SERVICES="minio,spark"  # ~20Gi
+minikube start --cpus=6 --memory=12288 --disk-size=60g --driver=vfkit --container-runtime=containerd
+ENABLED_SERVICES="minio,spark"  # ~6-8Gi
 ```
 
 ### M4 Max-Specific Optimizations
@@ -387,11 +380,12 @@ ENABLED_SERVICES="minio,spark"  # ~20Gi
 | Stack | Services | Memory | Minikube Config |
 |-------|----------|--------|-----------------|
 | Minimal | postgres | ~4Gi | --cpus=4 --memory=6144 |
-| Basic | minio,spark | ~22Gi | --cpus=10 --memory=24576 |
-| SQL Federation | postgres,minio,dremio | ~14Gi | --cpus=10 --memory=16384 |
-| Streaming | redpanda,spark,minio | ~28Gi | --cpus=12 --memory=32768 |
-| Full Orchestration | postgres,minio,spark,airflow | ~36Gi | --cpus=12 --memory=40960 |
-| ✅ **ALL 9** | All services | ~52Gi | --cpus=14 --memory=40960 --disk-size=100g |
+| Basic | minio,spark | ~8Gi | --cpus=6 --memory=12288 |
+| SQL Federation | postgres,minio,dremio | ~14Gi | --cpus=8 --memory=16384 |
+| Streaming | redpanda,spark,minio | ~12Gi | --cpus=8 --memory=16384 |
+| ⭐ **Recommended** | postgres,minio,spark,airflow,dremio | ~18-20Gi | --cpus=10 --memory=20480 --disk-size=100g |
+| Full Orchestration | postgres,minio,spark,airflow,redpanda | ~24Gi | --cpus=12 --memory=28672 |
+| ✅ **ALL 9** | All services | ~28Gi | --cpus=12 --memory=32768 --disk-size=100g |
 
 ### M4 Max vs Base M4 Comparison
 
@@ -457,12 +451,15 @@ setup-minikube-env/
 
 ### Minikube Won't Start
 ```bash
-# Check driver
-minikube start --driver=docker
+# M-series Mac: Use vfkit driver (recommended)
+minikube start --driver=vfkit --cpus=10 --memory=20480
 
-# Delete and recreate
+# Alternative: Try docker driver
+minikube start --driver=docker --cpus=10 --memory=20480
+
+# Delete and recreate if issues persist
 minikube delete
-minikube start --cpus=6 --memory=12288
+minikube start --cpus=10 --memory=20480 --disk-size=100g --driver=vfkit --container-runtime=containerd
 ```
 
 ### Pod Won't Start
@@ -587,6 +584,7 @@ MIT License
 ---
 
 **Quick Links:**
+- [Minikube Tutorial for Beginners](MINIKUBE_TUTORIAL.md) - **Start here if you're new to Minikube!**
 - [Minikube Documentation](https://minikube.sigs.k8s.io/docs/)
 - [Kubernetes Basics](https://kubernetes.io/docs/tutorials/kubernetes-basics/)
 - [kubectl Cheat Sheet](https://kubernetes.io/docs/reference/kubectl/cheatsheet/)
