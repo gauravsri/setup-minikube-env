@@ -127,12 +127,24 @@ show_status() {
 }
 
 # Show MongoDB logs
-show_logs() {
+show_logs_cmd() {
     local lines="${1:-50}"
     local follow="${2:-false}"
 
     print_header "MongoDB Logs"
-    show_logs "app=mongodb" "$NAMESPACE" "$lines" "$follow"
+
+    local pod=$(kubectl get pods -l "app=mongodb" -n "$NAMESPACE" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+
+    if [ -z "$pod" ]; then
+        print_error "MongoDB pod not found"
+        return 1
+    fi
+
+    if [ "$follow" = "true" ]; then
+        kubectl logs -f "$pod" -n "$NAMESPACE" --tail="$lines"
+    else
+        kubectl logs "$pod" -n "$NAMESPACE" --tail="$lines"
+    fi
 }
 
 # MongoDB Shell access
@@ -441,7 +453,7 @@ main() {
             show_status
             ;;
         logs)
-            show_logs "${2:-50}" "${3:-false}"
+            show_logs_cmd "${2:-50}" "${3:-false}"
             ;;
         mongosh|shell|cli)
             shift
