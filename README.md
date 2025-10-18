@@ -1,6 +1,6 @@
 # Modular Minikube Environment Setup
 
-A production-ready, modular Kubernetes environment template for Minikube with 10 containerized services. Optimized for Apple Silicon (M4 Max) and designed for cross-project reusability.
+A production-ready, modular Kubernetes environment template for Minikube with 11 containerized services. Optimized for Apple Silicon (M4 Max) and designed for cross-project reusability.
 
 [![Kubernetes](https://img.shields.io/badge/Kubernetes-Ready-326CE5?logo=kubernetes)](https://kubernetes.io/)
 [![Minikube](https://img.shields.io/badge/Minikube-Optimized-orange)](https://minikube.sigs.k8s.io/)
@@ -28,8 +28,8 @@ A production-ready, modular Kubernetes environment template for Minikube with 10
 - **Flexible service selection**: Choose services via `ENABLED_SERVICES`
 - **Git submodule ready**: Version-controlled templates
 
-### 🐳 **10 Production-Ready Services**
-- **Database**: PostgreSQL (relational database)
+### 🐳 **11 Production-Ready Services**
+- **Databases**: PostgreSQL (relational), MongoDB (NoSQL document)
 - **Data Storage**: MinIO (S3), Dremio (SQL federation)
 - **Processing**: Apache Spark (distributed computing)
 - **Orchestration**: Apache Airflow (workflow management)
@@ -97,6 +97,7 @@ cd ../my-project/scripts
 | Service | Description | Memory | Port(s) |
 |---------|-------------|---------|---------|
 | **PostgreSQL** | Relational database | ~2Gi | 5432 |
+| **MongoDB** | NoSQL document database | ~2Gi | 27017 |
 | **MinIO** | S3-compatible storage | ~1Gi | 9000, 9001 |
 | **Dremio** | SQL federation engine | ~4Gi | 9999, 9047 |
 | **Spark** | Spark on Kubernetes (RBAC + dynamic pods) ⭐ | ~0Gi idle | Dynamic |
@@ -114,6 +115,7 @@ cd ../my-project/scripts
 ```bash
 # Individual service management
 ./k8s/scripts/postgres.sh {deploy|remove|status|psql|create-db|backup}
+./k8s/scripts/mongodb.sh {deploy|remove|status|mongosh|create-db|backup|import|export}
 ./k8s/scripts/minio.sh {deploy|remove|status|logs|console}
 ./k8s/scripts/spark.sh {deploy|remove|scale|status|submit|ui|history-ui}
 ./k8s/scripts/airflow.sh {deploy|remove|status|cli|ui}
@@ -143,14 +145,14 @@ cd ../my-project/scripts
 - **CPU**: 10 cores (62.5% of M4 Max's 16 cores)
 - **Memory**: 20 GB (42% of 48GB)
 - **Disk**: 100 GB
-- **Services**: **5-7 services** comfortably!
+- **Services**: **6-8 services** comfortably!
 - **Advantage**: Production-like workloads with excellent macOS performance (28GB+ free RAM)
 
 ### Ultra (32GB+ Non-Apple Silicon)
 - **CPU**: 8+ cores
 - **Memory**: 16+ GB
 - **Disk**: 60+ GB
-- **Services**: 6-10 services
+- **Services**: 7-10 services
 
 ## Installation
 
@@ -234,6 +236,21 @@ minikube delete
 # Connection: postgresql://postgres:postgres@<minikube-ip>:30432/postgres
 ```
 
+**MongoDB (NoSQL Database)**
+```bash
+./k8s/scripts/mongodb.sh deploy
+./k8s/scripts/mongodb.sh mongosh                    # Open MongoDB Shell
+./k8s/scripts/mongodb.sh create-db myapp            # Create database
+./k8s/scripts/mongodb.sh create-user appuser pass123 myapp readWrite
+./k8s/scripts/mongodb.sh grant appuser myapp dbAdmin
+./k8s/scripts/mongodb.sh backup mydb ./backups      # Backup database
+./k8s/scripts/mongodb.sh import data.json mydb users # Import JSON
+./k8s/scripts/mongodb.sh export mydb users out.json  # Export collection
+
+# Access: admin/mongodb
+# Connection: mongodb://admin:mongodb@<minikube-ip>:30017/admin
+```
+
 **MinIO (S3 Storage)**
 ```bash
 ./k8s/scripts/minio.sh deploy
@@ -305,7 +322,7 @@ kubectl logs -n your-namespace <driver-pod-name> -f
 PROJECT_NAME="my-project"
 NAMESPACE="${PROJECT_NAME}"
 
-# Service Selection (10 available)
+# Service Selection (11 available)
 ENABLED_SERVICES="minio,spark,airflow"
 
 # Minikube (M4 Max Optimized - Current Setup)
@@ -353,8 +370,8 @@ ENABLED_SERVICES="postgres,minio,spark,airflow"
 # Streaming Platform (~7Gi - Spark on Kubernetes)
 ENABLED_SERVICES="redpanda,spark,minio"
 
-# All 10 Services (~22Gi with Spark on Kubernetes) - Best for M4 Max! ⭐
-ENABLED_SERVICES="postgres,minio,dremio,spark,airflow,redpanda,elasticsearch,zincsearch,dex,postfix"
+# All 11 Services (~24Gi with Spark on Kubernetes) - Best for M4 Max! ⭐
+ENABLED_SERVICES="postgres,mongodb,minio,dremio,spark,airflow,redpanda,elasticsearch,zincsearch,dex,postfix"
 ```
 
 ## M4 Max Optimization Guide
@@ -375,10 +392,10 @@ ENABLED_SERVICES="postgres,minio,spark,airflow,dremio"  # ~18-20Gi
 # ✅ Leaves 28GB RAM and 6 cores free for macOS - excellent performance!
 ```
 
-**Maximum (ALL 10 services!) 🚀**
+**Maximum (ALL 11 services!) 🚀**
 ```bash
 minikube start --cpus=12 --memory=32768 --disk-size=100g --driver=vfkit --container-runtime=containerd
-ENABLED_SERVICES="postgres,minio,dremio,spark,airflow,redpanda,elasticsearch,zincsearch,dex,postfix"
+ENABLED_SERVICES="postgres,mongodb,minio,dremio,spark,airflow,redpanda,elasticsearch,zincsearch,dex,postfix"
 # ✅ Runs comfortably with 16GB+ free for macOS!
 ```
 
@@ -402,7 +419,7 @@ ENABLED_SERVICES="minio,spark"  # ~6-8Gi
    - System processes
 
 3. **48GB Unified Memory Benefits**:
-   - Run ALL 10 services simultaneously
+   - Run ALL 11 services simultaneously
    - Large Spark datasets (10GB+)
    - Production-like workloads
    - 4-6 Spark workers with 4GB each
@@ -431,8 +448,8 @@ ENABLED_SERVICES="minio,spark"  # ~6-8Gi
 | SQL Federation | postgres,minio,dremio | ~14Gi | --cpus=8 --memory=16384 |
 | Streaming | redpanda,spark,minio | ~12Gi | --cpus=8 --memory=16384 |
 | ⭐ **Recommended** | postgres,minio,spark,airflow,dremio | ~18-20Gi | --cpus=10 --memory=20480 --disk-size=100g |
-| Full Orchestration | postgres,minio,spark,airflow,redpanda | ~24Gi | --cpus=12 --memory=28672 |
-| ✅ **ALL 10** | All services | ~32Gi | --cpus=12 --memory=32768 --disk-size=100g |
+| Full Orchestration | postgres,mongodb,minio,spark,airflow,redpanda | ~26Gi | --cpus=12 --memory=28672 |
+| ✅ **ALL 11** | All services | ~34Gi | --cpus=14 --memory=36864 --disk-size=100g |
 
 ### M4 Max vs Base M4 Comparison
 
@@ -440,7 +457,7 @@ ENABLED_SERVICES="minio,spark"  # ~6-8Gi
 |--------|----------------|---------------|-------------|
 | CPU Cores | 10 (4P+6E) | 16 (12P+4E) | +60%, +200% P-cores |
 | Memory | 16GB | 48GB | **+200%** |
-| Max Services | 5-6 | **All 10** | Full platform! |
+| Max Services | 5-6 | **All 11** | Full platform! |
 | Spark Workers | 2 × 2GB | 4-6 × 4GB | **4x capacity** |
 | Dremio JVM | 2-4GB | 4-8GB | **2x heap** |
 
@@ -478,6 +495,7 @@ setup-minikube-env/
 └── k8s/
     ├── manifests/                 # Kubernetes YAML
     │   ├── postgres.yaml
+    │   ├── mongodb.yaml
     │   ├── minio.yaml
     │   ├── dremio.yaml
     │   ├── spark.yaml
@@ -491,6 +509,7 @@ setup-minikube-env/
         ├── .env.example           # Configuration template
         ├── common.sh              # Shared utilities
         ├── postgres.sh
+        ├── mongodb.sh
         ├── minio.sh
         ├── dremio.sh
         ├── spark.sh
@@ -633,7 +652,7 @@ MIT License
 
 - Inspired by [setup-podman-env](https://github.com/gauravsri/setup-podman-env)
 - Optimized for Apple M4 Max MacBook Pro (48GB RAM, 16 cores)
-- All 10 services ported from Podman to Kubernetes
+- All 11 services ported from Podman to Kubernetes
 - Production-ready configurations for running complete data platform locally
 
 ---
